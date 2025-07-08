@@ -44,6 +44,10 @@ Config.VehicleRespawn = {
 
 -- Configuración de Depósito/Incautación
 Config.Impound = {
+    -- Modo de spawn de vehículos incautados:
+    -- 'onpay': El vehículo se spawnea solo cuando el usuario paga la multa
+    -- 'always': El vehículo está siempre spawneado en el depósito mientras está incautado
+    spawnMode = 'onpay', -- Cambia a 'always' si quieres el otro modo
     enabled = true,
     location = vector3(409.0, -1625.0, 29.3), -- Ubicación del depósito
     heading = 230.0,

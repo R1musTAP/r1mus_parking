@@ -38,10 +38,14 @@ R1MUS Parking is an advanced parking system for FiveM with QBCore. It completely
 - Location validation (water/docks only)
 - Prevents saving on land
 
+
 #### 🚧 Impound System
-- `/impound` command to confiscate vehicles
-- Impounded vehicles go to depot
-- Recovery system with fines
+- `/impound` command to confiscate vehicles (or integrate with job menu)
+- Two recovery modes:
+  - **On Pay**: Vehicle is spawned in the depot only after paying the fine
+  - **Always Visible**: All impounded vehicles are always spawned in the depot (configurable)
+- Vehicles are organized to avoid collisions (slot system or manual extraction)
+- Recovery system with fines and menu
 
 #### ⚡ Extreme Optimization
 - Streaming system for 250+ players
@@ -178,10 +182,14 @@ R1MUS Parking es un sistema de estacionamiento avanzado para FiveM con QBCore. R
 - Validación de ubicación (solo en agua/muelles)
 - Prevención de guardado en tierra
 
+
 #### 🚧 Sistema de Decomiso
-- Comando `/impound` para confiscar vehículos
-- Los vehículos decomisados van al depósito
-- Sistema de recuperación con multas
+- Comando `/impound` para confiscar vehículos (o integración con menú de trabajo)
+- Dos modos de recuperación:
+  - **Al Pagar**: El vehículo se spawnea en el depósito solo después de pagar la multa
+  - **Siempre Visible**: Todos los vehículos decomisados están siempre spawneados en el depósito (configurable)
+- Los vehículos se organizan para evitar colisiones (sistema de slots o extracción manual)
+- Sistema de recuperación con multas y menú
 
 #### ⚡ Optimización Extrema
 - Sistema de streaming para 250+ jugadores

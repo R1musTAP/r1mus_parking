@@ -20,90 +20,52 @@ end)
 CreateThread(function()
     while true do
         Wait(CHECK_INTERVAL)
-        
         if #factionVehicleData > 0 then
             local playerPed = PlayerPedId()
             local playerCoords = GetEntityCoords(playerPed)
-            local playerData = QBCore.Functions.GetPlayerData()
-            local playerJob = playerData.job and playerData.job.name or "unemployed"
-            local playerOnDuty = playerData.job and playerData.job.onduty or false
-            
-            -- Verificar qué vehículos deben estar visibles
+            -- No obtenemos el trabajo aquí, solo para bloqueo
+
             for _, vehicleData in ipairs(factionVehicleData) do
                 local distance = #(playerCoords - vehicleData.coords)
                 local vehicleKey = vehicleData.plate
-                
-                -- Verificar si el vehículo debe estar visible (SIEMPRE visible en rango)
-                if distance <= STREAM_DISTANCE then
-                    -- El vehículo debe estar visible
+
+                if distance <= STREAM_DISTANCE or (Config.FactionVehicles and Config.FactionVehicles.alwaysVisible) then
                     if not streamedFactionVehicles[vehicleKey] or not DoesEntityExist(streamedFactionVehicles[vehicleKey]) then
-                        -- Spawn del vehículo
                         CreateThread(function()
                             local hash = GetHashKey(vehicleData.model)
-                            
                             if not IsModelInCdimage(hash) then return end
-                            
                             RequestModel(hash)
                             local timeout = 0
                             while not HasModelLoaded(hash) and timeout < 50 do
                                 Wait(10)
                                 timeout = timeout + 1
                             end
-                            
                             if HasModelLoaded(hash) then
                                 local vehicle = CreateVehicle(hash, vehicleData.coords.x, vehicleData.coords.y, vehicleData.coords.z, vehicleData.heading, false, false)
-                                
                                 if DoesEntityExist(vehicle) then
-                                    -- Configuración básica
                                     SetEntityAsMissionEntity(vehicle, true, true)
                                     SetVehicleNumberPlateText(vehicle, vehicleData.plate)
                                     SetVehicleOnGroundProperly(vehicle)
-                                    
-                                    -- Aplicar propiedades visuales
-                                    if vehicleData.livery then
-                                        SetVehicleLivery(vehicle, vehicleData.livery)
-                                    end
-                                    
-                                    if vehicleData.extras then
-                                        for _, extra in ipairs(vehicleData.extras) do
-                                            SetVehicleExtra(vehicle, extra, 0)
-                                        end
-                                    end
-                                    
-                                    -- Estado del vehículo
+                                    if vehicleData.livery then SetVehicleLivery(vehicle, vehicleData.livery) end
+                                    if vehicleData.extras then for _, extra in ipairs(vehicleData.extras) do SetVehicleExtra(vehicle, extra, 0) end end
                                     SetVehicleBodyHealth(vehicle, vehicleData.bodyHealth or 1000.0)
                                     SetVehicleEngineHealth(vehicle, vehicleData.engineHealth or 1000.0)
                                     SetVehicleDirtLevel(vehicle, vehicleData.dirtLevel or 0.0)
-                                    
-                                    -- Bloqueo según trabajo y duty
-                                    -- Solo pueden usar el vehículo si: tienen el trabajo correcto Y están on duty
-                                    if vehicleData.job == playerJob and playerOnDuty then
-                                        SetVehicleDoorsLocked(vehicle, 1) -- Desbloqueado
-                                    else
-                                        SetVehicleDoorsLocked(vehicle, 2) -- Bloqueado
-                                    end
-                                    
+                                    SetVehicleDoorsLocked(vehicle, 2) -- Siempre bloqueado por defecto
                                     SetVehicleNeedsToBeHotwired(vehicle, false)
-                                    
-                                    -- Registrar
                                     streamedFactionVehicles[vehicleKey] = vehicle
                                     factionVehicles[vehicleData.plate] = vehicle
                                 end
-                                
                                 SetModelAsNoLongerNeeded(hash)
                             end
                         end)
                     end
                 else
-                    -- El vehículo debe estar oculto
                     if streamedFactionVehicles[vehicleKey] and DoesEntityExist(streamedFactionVehicles[vehicleKey]) then
-                        -- Guardar estado antes de eliminar
                         local vehicle = streamedFactionVehicles[vehicleKey]
                         vehicleData.bodyHealth = GetVehicleBodyHealth(vehicle)
                         vehicleData.engineHealth = GetVehicleEngineHealth(vehicle)
                         vehicleData.dirtLevel = GetVehicleDirtLevel(vehicle)
-                        
-                        -- Eliminar vehículo
                         DeleteEntity(vehicle)
                         streamedFactionVehicles[vehicleKey] = nil
                         factionVehicles[vehicleData.plate] = nil
