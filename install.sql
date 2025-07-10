@@ -25,8 +25,9 @@ CREATE TABLE IF NOT EXISTS `r1mus_parked_vehicles` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Crear índices adicionales para optimización
-CREATE INDEX IF NOT EXISTS `idx_last_parked` ON `r1mus_parked_vehicles` (`last_parked`);
-CREATE INDEX IF NOT EXISTS `idx_model` ON `r1mus_parked_vehicles` (`model`);
+-- Los siguientes índices pueden causar error si ya existen. Si es así, ignora el error o elimínalos manualmente antes de ejecutar.
+CREATE INDEX `idx_last_parked` ON `r1mus_parked_vehicles` (`last_parked`);
+CREATE INDEX `idx_model` ON `r1mus_parked_vehicles` (`model`);
 
 -- Tabla para vehículos de facción
 CREATE TABLE IF NOT EXISTS `r1mus_faction_vehicles` (

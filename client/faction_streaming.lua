@@ -1,5 +1,23 @@
 -- Sistema de Streaming Optimizado para Vehículos de Facción
-local QBCore = exports['qb-core']:GetCoreObject()
+local function GetCore()
+    if Config and Config.Framework == 'qbcore' then
+        return exports['qb-core']:GetCoreObject()
+    elseif Config and Config.Framework == 'qbox' then
+        return exports['qbx_core']:GetCoreObject() or exports['qbx_core']:GetSharedObject() or exports['qbx_core']:getSharedObject() or exports['qbx_core']:GetCore() or exports['qbx_core']:GetPlayerData()
+    elseif Config and Config.Framework == 'esx' then
+        return exports['es_extended']:getSharedObject()
+    elseif not Config or Config.Framework == 'auto' then
+        if GetResourceState('qb-core') == 'started' then
+            return exports['qb-core']:GetCoreObject()
+        elseif GetResourceState('qbx_core') == 'started' then
+            return exports['qbx_core']:GetCoreObject() or exports['qbx_core']:GetSharedObject() or exports['qbx_core']:getSharedObject() or exports['qbx_core']:GetCore() or exports['qbx_core']:GetPlayerData()
+        elseif GetResourceState('es_extended') == 'started' then
+            return exports['es_extended']:getSharedObject()
+        end
+    end
+    return nil
+end
+local QBCore = GetCore()
 local streamedFactionVehicles = {}
 local factionVehicleData = {}
 local STREAM_DISTANCE = Config and Config.Optimization and Config.Optimization.streamDistance or 150.0

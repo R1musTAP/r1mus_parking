@@ -1,6 +1,18 @@
 Config = {}
 
-Config.Debug = true -- Activar para ver mensajes de debug
+-- Framework: 'qbcore', 'qbox', 'esx', 'auto'
+-- 'auto' detecta automáticamente el framework (recomendado para plug & play)
+Config.Framework = 'auto' -- Cambia a 'qbcore', 'qbox' o 'esx' si quieres forzar uno
+
+-- Tipo de notificación: 'qb', 'origen', 'okok', 'mythic', 'custom'
+Config.NotifyType = 'qb' -- Cambia según el sistema de notificaciones que uses
+
+-- Selector de idioma dinámico
+-- Opciones: 'en' (inglés), 'es' (español)
+Config.Locale = 'en' -- Cambia a 'es' para español
+
+
+Config.Debug = false -- Activar para ver mensajes de debug
 Config.SaveInterval = 30000 -- Guardar posición cada 30 segundos
 Config.MinDistanceToSave = 5.0 -- Distancia mínima para actualizar posición
 
@@ -12,21 +24,9 @@ Config.VehicleLock = {
     unlockSound = "door-bolt-4"
 }
 
--- Configuración general
-Config.Debug = false
-Config.SaveInterval = 30000 -- Guardar posición cada 30 segundos
-Config.MinDistanceToSave = 5.0 -- Distancia mínima para actualizar posición
-
 
 -- Configuración de degradación de vehículos
-Config.VehicleDegradation = {
-    enabled = false,
-    interval = 3600000, -- Comprobar cada hora
-    healthDecrease = 0.5, -- Porcentaje de salud que pierde por hora
-    fuelDecrease = 0.2, -- Porcentaje de combustible que pierde por hora
-    minimumHealth = 500.0, -- Salud mínima del vehículo
-    minimumFuel = 5.0, -- Combustible mínimo
-}
+
 
 -- Configuración de notificaciones
 Config.Notifications = {
@@ -64,32 +64,7 @@ Config.Impound = {
     autoImpoundAfterDays = 7, -- Auto-incautar después de X días sin uso
 }
 
--- Configuración de Botes
-Config.BoatParking = {
-    enabled = true,
-    checkInterval = 5000, -- Verificar cada 5 segundos si está en agua
-    minWaterDepth = 1.5, -- Profundidad mínima para considerar agua
-    docks = {
-        {
-            name = "Puerto Principal",
-            coords = vector3(-794.75, -1510.83, 1.6),
-            radius = 50.0,
-            blip = {sprite = 410, color = 3, scale = 0.8}
-        },
-        {
-            name = "Marina Chumash",
-            coords = vector3(-3426.77, 955.66, 8.35),
-            radius = 50.0,
-            blip = {sprite = 410, color = 3, scale = 0.8}
-        },
-        {
-            name = "Muelle Paleto",
-            coords = vector3(-275.52, 6635.84, 7.51),
-            radius = 40.0,
-            blip = {sprite = 410, color = 3, scale = 0.8}
-        }
-    }
-}
+
 
 -- Configuración de Optimización
 Config.Optimization = {
@@ -117,11 +92,17 @@ Config.Optimization = {
 }
 
 -- Configuración de Vehículos de Facción
+Config.BoatParking = {
+    enabled = true, -- Habilita el guardado de botes en el agua
+    checkInterval = 5000, -- Intervalo de chequeo en ms
+    minWaterDepth = 1.5, -- Profundidad mínima de agua para permitir parking
+}
+
 Config.FactionVehicles = {
     enabled = true, -- ASEGÚRATE DE QUE ESTÉ EN true
     respawnOnRestart = false, -- Los vehículos vuelven a su posición original al reiniciar
-    lockToFaction = true, -- Solo miembros de la facción pueden usar los vehículos
-    requireOnDuty = true, -- Requiere estar on duty para usar vehículos de facción
+    lockToFaction = false, -- Permite que cualquier jugador vea y use los vehículos de facción
+    requireOnDuty = false, -- No requiere estar on duty para usar vehículos de facción
     alwaysVisible = true, -- Los vehículos siempre son visibles para todos (no afecta rendimiento con streaming)
     
     -- Definición de vehículos por trabajo

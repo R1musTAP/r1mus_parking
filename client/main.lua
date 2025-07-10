@@ -1,4 +1,118 @@
-local QBCore = exports['qb-core']:GetCoreObject()
+
+
+
+-- Framework universal (manual o auto)
+local Framework, Core = nil, nil
+function GetCore()
+    if Config.Framework == 'qbcore' then
+        Framework = 'qbcore'
+        return exports['qb-core']:GetCoreObject()
+    elseif Config.Framework == 'qbox' then
+        Framework = 'qbox'
+        return exports['qbx_core']:GetCoreObject() or exports['qbx_core']:GetSharedObject() or exports['qbx_core']:getSharedObject() or exports['qbx_core']:GetCore() or exports['qbx_core']:GetPlayerData() -- fallback
+    elseif Config.Framework == 'esx' then
+        Framework = 'esx'
+        return exports['es_extended']:getSharedObject()
+    elseif Config.Framework == 'auto' or not Config.Framework then
+        if GetResourceState('qb-core') == 'started' then
+            Framework = 'qbcore'
+            return exports['qb-core']:GetCoreObject()
+        elseif GetResourceState('qbx_core') == 'started' then
+            Framework = 'qbox'
+            return exports['qbx_core']:GetCoreObject() or exports['qbx_core']:GetSharedObject() or exports['qbx_core']:getSharedObject() or exports['qbx_core']:GetCore() or exports['qbx_core']:GetPlayerData()
+        elseif GetResourceState('es_extended') == 'started' then
+            Framework = 'esx'
+            return exports['es_extended']:getSharedObject()
+        end
+    end
+    return nil
+end
+
+local QBCore = GetCore() -- Para compatibilidad con el resto del código
+
+-- =============================
+-- SISTEMA UNIVERSAL DE FUEL
+-- =============================
+local FuelSystem = nil
+local function DetectFuelSystem()
+    if GetResourceState('LegacyFuel') == 'started' then
+        return 'LegacyFuel'
+    elseif GetResourceState('cdn-fuel') == 'started' then
+        return 'cdn-fuel'
+    elseif GetResourceState('ps-fuel') == 'started' then
+        return 'ps-fuel'
+    elseif GetResourceState('okokGasStation') == 'started' then
+        return 'okokGasStation'
+    elseif GetResourceState('qb-fuel') == 'started' then
+        return 'qb-fuel'
+    elseif GetResourceState('ox_fuel') == 'started' then
+        return 'ox_fuel'
+    else
+        return 'native'
+    end
+end
+
+FuelSystem = DetectFuelSystem()
+
+local function GetFuel(vehicle)
+    if FuelSystem == 'LegacyFuel' then
+        return exports['LegacyFuel']:GetFuel(vehicle)
+    elseif FuelSystem == 'cdn-fuel' then
+        return exports['cdn-fuel']:GetFuel(vehicle)
+    elseif FuelSystem == 'ps-fuel' then
+        return exports['ps-fuel']:GetFuel(vehicle)
+    elseif FuelSystem == 'okokGasStation' then
+        return exports['okokGasStation']:GetFuel(vehicle)
+    elseif FuelSystem == 'qb-fuel' then
+        return exports['qb-fuel']:GetFuel(vehicle)
+    elseif FuelSystem == 'ox_fuel' then
+        return exports['ox_fuel']:getFuel(vehicle)
+    else
+        return GetVehicleFuelLevel(vehicle)
+    end
+end
+
+local function SetFuel(vehicle, level)
+    if FuelSystem == 'LegacyFuel' then
+        exports['LegacyFuel']:SetFuel(vehicle, level)
+    elseif FuelSystem == 'cdn-fuel' then
+        exports['cdn-fuel']:SetFuel(vehicle, level)
+    elseif FuelSystem == 'ps-fuel' then
+        exports['ps-fuel']:SetFuel(vehicle, level)
+    elseif FuelSystem == 'okokGasStation' then
+        exports['okokGasStation']:SetFuel(vehicle, level)
+    elseif FuelSystem == 'qb-fuel' then
+        exports['qb-fuel']:SetFuel(vehicle, level)
+    elseif FuelSystem == 'ox_fuel' then
+        exports['ox_fuel']:setFuel(vehicle, level)
+    else
+        SetVehicleFuelLevel(vehicle, level)
+    end
+end
+
+-- Función centralizada de notificaciones
+
+function Notify(msg, type, time)
+    type = type or 'info'
+    time = time or 5000
+    if Framework == 'esx' then
+        TriggerEvent('esx:showNotification', msg)
+        return
+    end
+    if Config.NotifyType == 'qb' then
+        QBCore.Functions.Notify(msg, type, time)
+    elseif Config.NotifyType == 'origen' then
+        TriggerEvent('origen_notify:Notify', type, msg, time)
+    elseif Config.NotifyType == 'okok' then
+        exports['okokNotify']:Alert('Parking', msg, time, type)
+    elseif Config.NotifyType == 'mythic' then
+        exports['mythic_notify']:SendAlert(type, msg, time)
+    elseif Config.NotifyType == 'custom' then
+        print('CUSTOM NOTIFY:', msg, type)
+    else
+        QBCore.Functions.Notify(msg, type, time)
+    end
+end
 local PlayerData = {}
 local spawnedVehicles = {}
 local lastSavedPositions = {}
@@ -20,15 +134,23 @@ local function GetVehicleProperties(vehicle)
     if not vehicleProps then return nil end
 
     -- Propiedades adicionales - Asegurar valores correctos
-    vehicleProps.fuelLevel = exports['LegacyFuel']:GetFuel(vehicle)
+    vehicleProps.fuelLevel = GetFuel(vehicle)
     vehicleProps.bodyHealth = GetVehicleBodyHealth(vehicle) + 0.0 -- Forzar float
     vehicleProps.engineHealth = GetVehicleEngineHealth(vehicle) + 0.0
     vehicleProps.tankHealth = GetVehiclePetrolTankHealth(vehicle) + 0.0
     vehicleProps.dirtLevel = GetVehicleDirtLevel(vehicle) + 0.0
     
     -- Detectar tipo de vehículo
-    local isBoat = exports['r1mus_parking']:IsVehicleABoat(vehicle)
+    local isBoat = false
+    -- Refuerzo: intentar export y fallback a clase
+    if exports and exports['r1mus_parking'] and exports['r1mus_parking'].IsVehicleABoat then
+        isBoat = exports['r1mus_parking']:IsVehicleABoat(vehicle)
+    else
+        local vehicleClass = GetVehicleClass(vehicle)
+        isBoat = (vehicleClass == 14)
+    end
     vehicleProps.vehicleType = isBoat and 'boat' or 'car'
+    if Config.Debug then print('Tipo de vehículo detectado:', vehicleProps.vehicleType) end
     
     -- Guardar información de daños visuales
     vehicleProps.doorsBroken = {}
@@ -62,7 +184,7 @@ local function SetVehicleProperties(vehicle, props)
     QBCore.Functions.SetVehicleProperties(vehicle, props)
 
     -- Aplicar daños y propiedades adicionales
-    if props.fuelLevel then exports['LegacyFuel']:SetFuel(vehicle, props.fuelLevel) end
+    if props.fuelLevel then SetFuel(vehicle, props.fuelLevel) end
     if props.bodyHealth then SetVehicleBodyHealth(vehicle, props.bodyHealth + 0.0) end
     if props.engineHealth then SetVehicleEngineHealth(vehicle, props.engineHealth + 0.0) end
     if props.tankHealth then SetVehiclePetrolTankHealth(vehicle, props.tankHealth + 0.0) end
@@ -178,7 +300,7 @@ local function RestoreVehicle(data)
         SetVehicleBodyHealth(vehicle, data.bodyHealth or 1000.0)
         SetVehicleEngineHealth(vehicle, data.engineHealth or 1000.0)
         SetVehiclePetrolTankHealth(vehicle, 1000.0)
-        exports['LegacyFuel']:SetFuel(vehicle, data.fuelLevel or 100.0)
+        SetFuel(vehicle, data.fuelLevel or 100.0)
     end
     
     -- Forzar actualización visual del daño
@@ -260,7 +382,7 @@ local function RestoreFactionVehicle(data)
     else
         SetVehicleBodyHealth(vehicle, data.bodyHealth or 1000.0)
         SetVehicleEngineHealth(vehicle, data.engineHealth or 1000.0)
-        exports['LegacyFuel']:SetFuel(vehicle, data.fuelLevel or 100.0)
+        SetFuel(vehicle, data.fuelLevel or 100.0)
         SetVehicleDirtLevel(vehicle, data.dirtLevel or 0.0)
     end
     
@@ -294,8 +416,8 @@ local function HandleVehicleLock()
 
     if DoesEntityExist(vehicle) then
         local plate = GetVehicleNumberPlateText(vehicle)
-        
-        -- Verificar si es vehículo de facción
+        local isBoat = exports['r1mus_parking']:IsVehicleABoat(vehicle)
+        -- Permitir bloqueo/desbloqueo también para botes
         if IsFactionVehicle(plate) then
             QBCore.Functions.TriggerCallback('r1mus_parking:server:CanUseFactionVehicle', function(canUse)
                 if canUse then
@@ -305,18 +427,34 @@ local function HandleVehicleLock()
                         if Config.VehicleLock.soundEnabled then
                             PlaySoundFromEntity(-1, Config.VehicleLock.lockSound, vehicle, "HUD_FRONTEND_DEFAULT_SOUNDSET", 1, 0)
                         end
-                        QBCore.Functions.Notify('Vehículo de facción bloqueado', 'success')
+                        Notify(Lang:t('success.faction_vehicle_locked'), 'success')
                     else
                         SetVehicleDoorsLocked(vehicle, 1)
                         if Config.VehicleLock.soundEnabled then
                             PlaySoundFromEntity(-1, Config.VehicleLock.unlockSound, vehicle, "HUD_FRONTEND_DEFAULT_SOUNDSET", 1, 0)
                         end
-                        QBCore.Functions.Notify('Vehículo de facción desbloqueado', 'success')
+                        Notify(Lang:t('success.faction_vehicle_unlocked'), 'success')
                     end
                 else
-                    QBCore.Functions.Notify('No tienes permiso para usar este vehículo', 'error')
+                    Notify(Lang:t('error.no_faction_permission'), 'error')
                 end
             end, plate)
+        elseif isBoat then
+            -- Permitir bloqueo/desbloqueo de botes
+            local lockStatus = GetVehicleDoorLockStatus(vehicle)
+            if lockStatus == 1 then
+                SetVehicleDoorsLocked(vehicle, 2)
+                if Config.VehicleLock.soundEnabled then
+                    PlaySoundFromEntity(-1, Config.VehicleLock.lockSound, vehicle, "HUD_FRONTEND_DEFAULT_SOUNDSET", 1, 0)
+                end
+                Notify('Bote bloqueado', 'success')
+            else
+                SetVehicleDoorsLocked(vehicle, 1)
+                if Config.VehicleLock.soundEnabled then
+                    PlaySoundFromEntity(-1, Config.VehicleLock.unlockSound, vehicle, "HUD_FRONTEND_DEFAULT_SOUNDSET", 1, 0)
+                end
+                Notify('Bote desbloqueado', 'success')
+            end
         else
             -- Vehículo personal
             QBCore.Functions.TriggerCallback('r1mus_parking:server:CheckVehicleOwner', function(isOwner)
@@ -327,13 +465,13 @@ local function HandleVehicleLock()
                         if Config.VehicleLock.soundEnabled then
                             PlaySoundFromEntity(-1, Config.VehicleLock.lockSound, vehicle, "HUD_FRONTEND_DEFAULT_SOUNDSET", 1, 0)
                         end
-                        QBCore.Functions.Notify('Vehículo bloqueado', 'success')
+                        Notify(Lang:t('success.vehicle_parked'), 'success')
                     else
                         SetVehicleDoorsLocked(vehicle, 1)
                         if Config.VehicleLock.soundEnabled then
                             PlaySoundFromEntity(-1, Config.VehicleLock.unlockSound, vehicle, "HUD_FRONTEND_DEFAULT_SOUNDSET", 1, 0)
                         end
-                        QBCore.Functions.Notify('Vehículo desbloqueado', 'success')
+                        Notify(Lang:t('success.vehicle_retrieved'), 'success')
                     end
                 end
             end, plate)
@@ -587,29 +725,117 @@ end)
 -- Registro de comandos
 RegisterCommand('findvehicle', function(source, args)
     if not args[1] then
-        QBCore.Functions.Notify('Debes especificar una matrícula', 'error')
+        Notify(Lang:t('error.no_nearby_vehicles'), 'error')
+
+-- =============================
+-- MENÚ Y PED DE RECUPERACIÓN DEPÓSITO
+-- =============================
+local impoundPed = nil
+local impoundPedModel = `s_m_y_cop_01` -- Puedes cambiar el modelo aquí
+local impoundPedCoords = Config.Impound.location
+local impoundPedHeading = Config.Impound.heading or 0.0
+
+-- Crear el PED del depósito
+CreateThread(function()
+    if not Config.Impound.enabled then return end
+    RequestModel(impoundPedModel)
+    while not HasModelLoaded(impoundPedModel) do Wait(50) end
+    impoundPed = CreatePed(4, impoundPedModel, impoundPedCoords.x, impoundPedCoords.y, impoundPedCoords.z - 1.0, impoundPedHeading, false, true)
+    FreezeEntityPosition(impoundPed, true)
+    SetEntityInvincible(impoundPed, true)
+    SetBlockingOfNonTemporaryEvents(impoundPed, true)
+end)
+
+-- Detección de cercanía e interacción
+CreateThread(function()
+    while true do
+        Wait(500)
+        if impoundPed and #(GetEntityCoords(PlayerPedId()) - impoundPedCoords) < 2.5 then
+            -- Mostrar ayuda
+            BeginTextCommandDisplayHelp("STRING")
+            AddTextComponentSubstringPlayerName("Pulsa ~INPUT_CONTEXT~ para recuperar vehículos incautados")
+            EndTextCommandDisplayHelp(0, false, true, -1)
+            if IsControlJustReleased(0, 38) then -- E
+                TriggerServerEvent('r1mus_parking:server:OpenImpoundMenu')
+            end
+        end
+    end
+end)
+
+-- Recibir menú de vehículos incautados
+RegisterNetEvent('r1mus_parking:client:ShowImpoundMenu', function(vehicles)
+    if not vehicles or #vehicles == 0 then
+        Notify('No tienes vehículos incautados', 'error')
+        return
+    end
+    local elements = {}
+    for _, v in ipairs(vehicles) do
+        table.insert(elements, {
+            header = v.plate .. ' - ' .. (v.label or v.model),
+            params = { event = 'r1mus_parking:client:RecoverImpoundedVehicle', args = { plate = v.plate } }
+        })
+    end
+    table.insert(elements, { header = 'Cerrar', params = { event = '' } })
+    if Framework == 'esx' then
+        -- Menú simple para ESX (puedes mejorar con esx_menu_default)
+        local menu = {}
+        for _, v in ipairs(vehicles) do
+            table.insert(menu, {label = v.plate .. ' - ' .. (v.label or v.model), value = v.plate})
+        end
+        table.insert(menu, {label = 'Cerrar', value = 'close'})
+        ESX.UI.Menu.Open('default', GetCurrentResourceName(), 'impound_menu', {
+            title = 'Vehículos Incautados',
+            align = 'top-left',
+            elements = menu
+        }, function(data, menu)
+            if data.current.value and data.current.value ~= 'close' then
+                TriggerServerEvent('r1mus_parking:server:PayImpoundFee', data.current.value)
+            end
+            menu.close()
+        end, function(data, menu)
+            menu.close()
+        end)
+    else
+        exports['qb-menu']:openMenu(elements)
+    end
+end)
+
+RegisterNetEvent('r1mus_parking:client:RecoverImpoundedVehicle', function(data)
+    if data and data.plate then
+        TriggerServerEvent('r1mus_parking:server:PayImpoundFee', data.plate)
+    end
+end)
         return
     end
     QBCore.Functions.TriggerCallback('r1mus_parking:server:GetLastVehicleLocation', function(coords)
         if coords then
             SetNewWaypoint(coords.x, coords.y)
-            QBCore.Functions.Notify('Ubicación del vehículo marcada en el mapa', 'success')
+            Notify(Lang:t('info.vehicle_located'), 'success')
         else
-            QBCore.Functions.Notify('No se encontró el vehículo', 'error')
+            Notify(Lang:t('error.vehicle_not_found'), 'error')
         end
     end, args[1])
 end)
 
--- Keybinding para bloqueo de vehículo
-RegisterKeyMapping('togglelock', 'Toggle Vehicle Lock', 'keyboard', Config.VehicleLock.defaultKey)
-RegisterCommand('togglelock', function()
-    if Config.VehicleLock.enabled then
-        HandleVehicleLock()
+-- Keybinding para bloqueo de vehículo (plug & play con config)
+CreateThread(function()
+    -- Intenta registrar el keymapping con la tecla definida en config
+    RegisterKeyMapping('togglelock', 'Toggle Vehicle Lock', 'keyboard', Config.VehicleLock.defaultKey)
+    RegisterCommand('togglelock', function()
+        if Config.VehicleLock.enabled then
+            HandleVehicleLock()
+        end
+    end)
+    -- Aviso si el usuario tiene la L asignada por error
+    Wait(2000)
+    local key = GetControlInstructionalButton(0, string.byte(Config.VehicleLock.defaultKey:upper()), true)
+    if Config.VehicleLock.defaultKey:lower() ~= 'l' then
+        print('^3[Parking] Si la tecla L sigue abriendo/cerrando el vehículo, ejecuta en F8: ^0unbind keyboard l^3 y reinicia el recurso para que funcione la tecla configurada ('..Config.VehicleLock.defaultKey:upper()..')^0')
     end
 end)
 RegisterNetEvent('r1mus_parking:client:SetVehicleRoute', function(coords)
     SetNewWaypoint(coords.x, coords.y)
-    QBCore.Functions.Notify('Vehicle location marked on map', 'success')
+    Notify(Lang:t('info.vehicle_located'), 'success')
 end)
 RegisterNetEvent('r1mus_parking:client:TeleportToCoords', function(coords)
     local playerPed = PlayerPedId()
@@ -654,7 +880,7 @@ RegisterCommand('factionvehicles', function()
                 print(string.format("^3%s^7 - %s [%s]", vehicle.plate, vehicle.label, status))
             end
         else
-            QBCore.Functions.Notify('No hay vehículos de facción disponibles para tu trabajo', 'error')
+            Notify(Lang:t('info.no_faction_vehicles'), 'error')
         end
     end)
 end)
@@ -700,16 +926,18 @@ RegisterNetEvent('r1mus_parking:client:ImpoundVehicle', function(reason)
             end
         end, function() -- Cancel
             ClearPedTasks(playerPed)
-            QBCore.Functions.Notify('Incautación cancelada', 'error')
+            Notify(Lang:t('error.vehicle_not_found'), 'error')
         end)
     else
-        QBCore.Functions.Notify('No hay vehículo cerca para incautar', 'error')
+        Notify(Lang:t('error.no_nearby_vehicles'), 'error')
     end
 end)
 
--- Blip del depósito
+
+-- Blip y PED del depósito
 if Config.Impound.enabled and Config.Impound.blip.enabled then
     CreateThread(function()
+        -- Blip
         local blip = AddBlipForCoord(Config.Impound.location.x, Config.Impound.location.y, Config.Impound.location.z)
         SetBlipSprite(blip, Config.Impound.blip.sprite)
         SetBlipDisplay(blip, 4)
@@ -719,5 +947,44 @@ if Config.Impound.enabled and Config.Impound.blip.enabled then
         BeginTextCommandSetBlipName("STRING")
         AddTextComponentString(Config.Impound.blip.label)
         EndTextCommandSetBlipName(blip)
+
+        -- PED/NPC
+        local pedModel = `s_m_m_security_01` -- Modelo de seguridad, puedes cambiarlo
+        RequestModel(pedModel)
+        while not HasModelLoaded(pedModel) do Wait(10) end
+        local ped = CreatePed(4, pedModel, Config.Impound.location.x, Config.Impound.location.y, Config.Impound.location.z - 1.0, Config.Impound.heading or 0.0, false, true)
+        SetEntityInvincible(ped, true)
+        SetBlockingOfNonTemporaryEvents(ped, true)
+        FreezeEntityPosition(ped, true)
+        TaskStartScenarioInPlace(ped, "WORLD_HUMAN_CLIPBOARD", 0, true)
+
+        -- Interacción con el PED
+        while true do
+            Wait(0)
+            local playerPed = PlayerPedId()
+            local playerCoords = GetEntityCoords(playerPed)
+            local dist = #(playerCoords - vector3(Config.Impound.location.x, Config.Impound.location.y, Config.Impound.location.z))
+            if dist < 2.0 then
+                DrawText3D(Config.Impound.location.x, Config.Impound.location.y, Config.Impound.location.z + 1.0, "[E] Recuperar Vehículo")
+                if IsControlJustReleased(0, 38) then -- E
+                    TriggerServerEvent('r1mus_parking:server:OpenImpoundMenu')
+                    Wait(1000)
+                end
+            else
+                Wait(500)
+            end
+        end
     end)
+end
+
+function DrawText3D(x, y, z, text)
+    SetTextScale(0.35, 0.35)
+    SetTextFont(4)
+    SetTextProportional(1)
+    SetTextColour(255, 255, 255, 215)
+    SetTextEntry("STRING")
+    AddTextComponentString(text)
+    SetDrawOrigin(x, y, z, 0)
+    DrawText(0.0, 0.0)
+    ClearDrawOrigin()
 end

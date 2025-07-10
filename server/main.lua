@@ -1,4 +1,178 @@
-local QBCore = exports['qb-core']:GetCoreObject()
+-- Evento para abrir el menú de depósito y enviar vehículos incautados al cliente
+
+RegisterNetEvent('r1mus_parking:server:OpenImpoundMenu', function()
+    local src = source
+    local Player = GetPlayer(src)
+    if not Player then return end
+    local identifier = GetIdentifier(Player)
+    local impoundedVehicles = MySQL.query.await('SELECT * FROM r1mus_parked_vehicles WHERE citizenid = ? AND impounded = true', {identifier})
+    if impoundedVehicles and #impoundedVehicles > 0 then
+        -- Solo enviar los datos necesarios al cliente
+        local vehicles = {}
+        for _, v in ipairs(impoundedVehicles) do
+            table.insert(vehicles, {
+                plate = v.plate,
+                model = v.model,
+                label = v.label or v.model,
+                impound_fee = v.impound_fee or Config.Impound.fee,
+                impound_reason = v.impound_reason or "Sin motivo"
+            })
+        end
+        TriggerClientEvent('r1mus_parking:client:ShowImpoundMenu', src, vehicles)
+    else
+        TriggerClientEvent('r1mus_parking:client:ShowImpoundMenu', src, {})
+    end
+end)
+-- =============================
+-- SISTEMA DE DETECCIÓN DE FRAMEWORK Y WRAPPERS UNIVERSALES
+-- =============================
+
+
+
+local Config = Config or {}
+
+-- Framework: 'qbcore', 'qbox', 'esx', 'auto'
+Config.Framework = Config.Framework or 'auto'
+
+local Framework, Core = nil, nil
+if Config.Framework == 'qbcore' then
+    Framework = 'qbcore'
+    Core = exports['qb-core']:GetCoreObject()
+elseif Config.Framework == 'qbox' then
+    Framework = 'qbox'
+    Core = exports['qbx_core']:GetCoreObject()
+elseif Config.Framework == 'esx' then
+    Framework = 'esx'
+    Core = exports['es_extended']:getSharedObject()
+elseif Config.Framework == 'auto' or not Config.Framework then
+    if GetResourceState('qb-core') == 'started' then
+        Framework = 'qbcore'
+        Core = exports['qb-core']:GetCoreObject()
+    elseif GetResourceState('qbx_core') == 'started' then
+        Framework = 'qbox'
+        Core = exports['qbx_core']:GetCoreObject()
+    elseif GetResourceState('es_extended') == 'started' then
+        Framework = 'esx'
+        Core = exports['es_extended']:getSharedObject()
+    else
+        print('^1[ERROR] No compatible framework found!^0')
+        return
+    end
+end
+
+-- WRAPPERS UNIVERSALES
+
+function GetPlayer(src)
+    if Framework == 'qbcore' or Framework == 'qbox' then
+        return Core.Functions.GetPlayer(src)
+    elseif Framework == 'esx' then
+        if Core.GetPlayerFromId then
+            return Core.GetPlayerFromId(src)
+        elseif ESX and ESX.GetPlayerFromId then
+            return ESX.GetPlayerFromId(src)
+        end
+    end
+end
+
+
+function GetIdentifier(Player)
+    if Framework == 'qbcore' or Framework == 'qbox' then
+        return Player.PlayerData.citizenid
+    elseif Framework == 'esx' then
+        return Player.identifier or (Player.getIdentifier and Player:getIdentifier())
+    end
+end
+
+
+function RemoveMoney(Player, type, amount)
+    if Framework == 'qbcore' or Framework == 'qbox' then
+        return Player.Functions.RemoveMoney(type, amount)
+    elseif Framework == 'esx' then
+        if type == 'bank' then
+            return Player.removeAccountMoney('bank', amount)
+        else
+            return Player.removeMoney(amount)
+        end
+    end
+end
+
+
+function Notify(src, msg, type)
+    if Framework == 'qbcore' or Framework == 'qbox' then
+        TriggerClientEvent('QBCore:Notify', src, msg, type)
+    elseif Framework == 'esx' then
+        TriggerClientEvent('esx:showNotification', src, msg)
+    end
+end
+
+
+function GetJob(Player)
+    if Framework == 'qbcore' or Framework == 'qbox' then
+        return Player.PlayerData.job.name, Player.PlayerData.job.onduty
+    elseif Framework == 'esx' then
+        return Player.job.name, Player.job.onDuty or Player.job.onduty or true
+    end
+end
+
+
+function IsAdmin(Player)
+    if Framework == 'qbcore' or Framework == 'qbox' then
+        return Player.PlayerData.group == "admin" or Player.PlayerData.group == "superadmin"
+    elseif Framework == 'esx' then
+        if Player.getGroup then
+            local group = Player.getGroup()
+            return group == "admin" or group == "superadmin"
+        elseif Player.group then
+            return Player.group == "admin" or Player.group == "superadmin"
+        end
+    end
+end
+
+
+-- =============================
+-- SISTEMA DE TRADUCCIÓN SERVIDOR (ARCHIVOS SEPARADOS)
+-- =============================
+local ServerLocales = {}
+local localeFile = 'locales/' .. (Config.Locale or 'en') .. '.lua'
+local localeChunk = LoadResourceFile(GetCurrentResourceName(), localeFile)
+if localeChunk then
+    local chunk = load(localeChunk, localeFile)
+    if chunk then
+        ServerLocales = chunk()
+    else
+        print('^1[ERROR] Failed to load locale chunk: '..localeFile..'^0')
+    end
+else
+    print('^1[ERROR] Locale file not found: '..localeFile..'^0')
+end
+
+local function GetPlayerLocale(src)
+    -- Puedes personalizar para obtener el idioma por usuario
+    return Config.Locale or 'en'
+end
+
+local function ServerLang(src, key, vars)
+    local locale = GetPlayerLocale(src)
+    local parts = {}
+    for part in string.gmatch(key, "[^.]+") do table.insert(parts, part) end
+    local phrase = ServerLocales[locale]
+    for _, p in ipairs(parts) do
+        if phrase and phrase[p] then phrase = phrase[p] else phrase = nil break end
+    end
+    if not phrase then return key end
+    if vars then
+        for k, v in pairs(vars) do
+            phrase = phrase:gsub('${'..k..'}', tostring(v))
+        end
+    end
+    return phrase
+end
+
+
+local function NotifyLocale(src, key, type, vars)
+    Notify(src, ServerLang(src, key, vars), type or 'info')
+end
+
 local ParkedVehicles = {}
 local SpawnedVehicles = {}
 local FactionVehicles = {} -- Track de vehículos de facción spawneados
@@ -202,75 +376,63 @@ local function CanUseFactionVehicle(Player, job)
 end
 
 -- Callbacks
-QBCore.Functions.CreateCallback('r1mus_parking:server:CheckVehicleOwner', function(source, cb, plate)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if not Player then return cb(false) end
-    
-    cb(CheckVehicleOwnership(Player.PlayerData.citizenid, plate))
-end)
 
-QBCore.Functions.CreateCallback('r1mus_parking:server:GetNearbyVehicles', function(source, cb, coords)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if not Player then return cb({}) end
+-- Callbacks universales (compatibles con QBCore, Qbox y ESX)
+if Framework == 'qbcore' or Framework == 'qbox' then
+    Core.Functions.CreateCallback('r1mus_parking:server:CheckVehicleOwner', function(source, cb, plate)
+        local Player = GetPlayer(source)
+        if not Player then return cb(false) end
+        cb(CheckVehicleOwnership(GetIdentifier(Player), plate))
+    end)
 
-    local vehicles = MySQL.query.await('SELECT * FROM r1mus_parked_vehicles WHERE citizenid = ?', 
-    {Player.PlayerData.citizenid})
-    
-    local nearbyVehicles = {}
-    for _, vehicle in ipairs(vehicles or {}) do
-        local vehicleCoords = json.decode(vehicle.coords)
-        if vehicleCoords then
-            local distance = #(vector3(coords.x, coords.y, coords.z) - vector3(vehicleCoords.x, vehicleCoords.y, vehicleCoords.z))
-            if distance <= 100.0 then
-                nearbyVehicles[#nearbyVehicles + 1] = vehicle
+    Core.Functions.CreateCallback('r1mus_parking:server:GetNearbyVehicles', function(source, cb, coords)
+        local Player = GetPlayer(source)
+        if not Player then return cb({}) end
+        local vehicles = MySQL.query.await('SELECT * FROM r1mus_parked_vehicles WHERE citizenid = ?', {GetIdentifier(Player)})
+        local nearbyVehicles = {}
+        for _, vehicle in ipairs(vehicles or {}) do
+            local vehicleCoords = json.decode(vehicle.coords)
+            if vehicleCoords then
+                local distance = #(vector3(coords.x, coords.y, coords.z) - vector3(vehicleCoords.x, vehicleCoords.y, vehicleCoords.z))
+                if distance <= 100.0 then
+                    nearbyVehicles[#nearbyVehicles + 1] = vehicle
+                end
             end
         end
-    end
+        cb(nearbyVehicles)
+    end)
 
-    cb(nearbyVehicles)
-end)
+    Core.Functions.CreateCallback('r1mus_parking:server:GetLastVehicleLocation', function(source, cb, plate)
+        local Player = GetPlayer(source)
+        if not Player then return cb(false) end
+        local result = MySQL.single.await('SELECT coords, heading FROM r1mus_parked_vehicles WHERE plate = ? AND citizenid = ?', {plate, GetIdentifier(Player)})
+        if result then
+            result.coords = json.decode(result.coords)
+            cb(result)
+        else
+            cb(false)
+        end
+    end)
 
-QBCore.Functions.CreateCallback('r1mus_parking:server:GetLastVehicleLocation', function(source, cb, plate)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if not Player then return cb(false) end
+    Core.Functions.CreateCallback('r1mus_parking:server:GetFactionVehicles', function(source, cb)
+        local Player = GetPlayer(source)
+        if not Player then return cb({}) end
+        local job = GetJob(Player)
+        local vehicles = MySQL.query.await('SELECT * FROM r1mus_faction_vehicles WHERE job = ?', {job})
+        cb(vehicles or {})
+    end)
 
-    local result = MySQL.single.await('SELECT coords, heading FROM r1mus_parked_vehicles WHERE plate = ? AND citizenid = ?', 
-{
-    plate,
-    Player.PlayerData.citizenid
-})
+    Core.Functions.CreateCallback('r1mus_parking:server:CanUseFactionVehicle', function(source, cb, plate)
+        local Player = GetPlayer(source)
+        if not Player then return cb(false) end
+        local vehicle = MySQL.single.await('SELECT job FROM r1mus_faction_vehicles WHERE plate = ?', {plate})
+        if vehicle then
+            cb(CanUseFactionVehicle(Player, vehicle.job))
+        else
+            cb(false)
+        end
+    end)
 
-    if result then
-        result.coords = json.decode(result.coords)
-        cb(result)
-    else
-        cb(false)
-    end
-end)
-
--- Callback para obtener vehículos de facción disponibles
-QBCore.Functions.CreateCallback('r1mus_parking:server:GetFactionVehicles', function(source, cb)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if not Player then return cb({}) end
-    
-    local job = Player.PlayerData.job.name
-    local vehicles = MySQL.query.await('SELECT * FROM r1mus_faction_vehicles WHERE job = ?', {job})
-    
-    cb(vehicles or {})
-end)
-
--- Callback para verificar si puede usar vehículo de facción
-QBCore.Functions.CreateCallback('r1mus_parking:server:CanUseFactionVehicle', function(source, cb, plate)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if not Player then return cb(false) end
-    
-    local vehicle = MySQL.single.await('SELECT job FROM r1mus_faction_vehicles WHERE plate = ?', {plate})
-    if vehicle then
-        cb(CanUseFactionVehicle(Player, vehicle.job))
-    else
-        cb(false)
-    end
-end)
 
 -- Eventos
 RegisterNetEvent('r1mus_parking:server:UpdateVehiclePosition', function(data)
@@ -499,72 +661,123 @@ RegisterNetEvent('r1mus_parking:server:TrackVehicle', function(plate)
     end
 end)
 
--- Eventos del framework
-RegisterNetEvent('QBCore:Server:OnPlayerLoaded', function(source)
-    local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    if not Player then return end
 
-    -- Cargar vehículos del jugador con delay
-    CreateThread(function()
-        Wait(2000) -- Esperar 2 segundos antes de empezar a cargar vehículos
-        
-        -- Enviar datos de vehículos de facción para streaming
-        if Config.FactionVehicles.enabled then
-            local allFactionVehicles = MySQL.query.await('SELECT * FROM r1mus_faction_vehicles')
-            if allFactionVehicles and #allFactionVehicles > 0 then
-                local vehicleDataForStreaming = {}
-                for _, vehicle in ipairs(allFactionVehicles) do
-                    local coords = json.decode(vehicle.coords)
-                    local extras = json.decode(vehicle.extras or '[]')
-                    
-                    table.insert(vehicleDataForStreaming, {
-                        model = vehicle.model,
-                        plate = vehicle.plate,
-                        coords = coords,
-                        heading = vehicle.heading,
-                        job = vehicle.job,
-                        label = vehicle.label,
-                        livery = vehicle.livery,
-                        extras = extras,
-                        bodyHealth = vehicle.body_health or 1000.0,
-                        engineHealth = vehicle.engine_health or 1000.0,
-                        fuelLevel = vehicle.fuel_level or 100.0,
-                        dirtLevel = vehicle.dirt_level or 0.0
-                    })
-                end
-                TriggerClientEvent('r1mus_parking:client:ReceiveFactionVehicleData', src, vehicleDataForStreaming)
-            end
-        end
-        
-        -- Cargar vehículos personales
-        local vehicles = MySQL.query.await('SELECT * FROM r1mus_parked_vehicles WHERE citizenid = ?',
-            {Player.PlayerData.citizenid})
-
-        if vehicles then
-            for _, vehicleData in ipairs(vehicles) do
-                Wait(1000) -- Esperar 1 segundo entre cada vehículo
-                if not IsVehicleSpawned(vehicleData.plate) then
-                    local coords = json.decode(vehicleData.coords)
-                    if coords then
-                        MarkVehicleAsSpawned(vehicleData.plate, src)
-                        TriggerClientEvent('r1mus_parking:client:RestoreVehicle', src, {
-                            model = vehicleData.model,
-                            plate = vehicleData.plate,
+-- Eventos de carga de jugador (compatibles con QBCore, Qbox y ESX)
+if Framework == 'qbcore' or Framework == 'qbox' then
+    RegisterNetEvent('QBCore:Server:OnPlayerLoaded', function(source)
+        local src = source
+        local Player = GetPlayer(src)
+        if not Player then return end
+        CreateThread(function()
+            Wait(2000)
+            if Config.FactionVehicles.enabled then
+                local allFactionVehicles = MySQL.query.await('SELECT * FROM r1mus_faction_vehicles')
+                if allFactionVehicles and #allFactionVehicles > 0 then
+                    local vehicleDataForStreaming = {}
+                    for _, vehicle in ipairs(allFactionVehicles) do
+                        local coords = json.decode(vehicle.coords)
+                        local extras = json.decode(vehicle.extras or '[]')
+                        table.insert(vehicleDataForStreaming, {
+                            model = vehicle.model,
+                            plate = vehicle.plate,
                             coords = coords,
-                            heading = vehicleData.heading,
-                            properties = json.decode(vehicleData.mods or '{}'),
-                            bodyHealth = vehicleData.body_health,
-                            engineHealth = vehicleData.engine_health,
-                            fuelLevel = vehicleData.fuel_level,
-                            dirtLevel = vehicleData.dirt_level,
+                            heading = vehicle.heading,
+                            job = vehicle.job,
+                            label = vehicle.label,
+                            livery = vehicle.livery,
+                            extras = extras,
+                            bodyHealth = vehicle.body_health or 1000.0,
+                            engineHealth = vehicle.engine_health or 1000.0,
+                            fuelLevel = vehicle.fuel_level or 100.0,
+                            dirtLevel = vehicle.dirt_level or 0.0
                         })
+                    end
+                    TriggerClientEvent('r1mus_parking:client:ReceiveFactionVehicleData', src, vehicleDataForStreaming)
+                end
+            end
+            local vehicles = MySQL.query.await('SELECT * FROM r1mus_parked_vehicles WHERE citizenid = ?', {GetIdentifier(Player)})
+            if vehicles then
+                for _, vehicleData in ipairs(vehicles) do
+                    Wait(1000)
+                    if not IsVehicleSpawned(vehicleData.plate) then
+                        local coords = json.decode(vehicleData.coords)
+                        if coords then
+                            MarkVehicleAsSpawned(vehicleData.plate, src)
+                            TriggerClientEvent('r1mus_parking:client:RestoreVehicle', src, {
+                                model = vehicleData.model,
+                                plate = vehicleData.plate,
+                                coords = coords,
+                                heading = vehicleData.heading,
+                                properties = json.decode(vehicleData.mods or '{}'),
+                                bodyHealth = vehicleData.body_health,
+                                engineHealth = vehicleData.engine_health,
+                                fuelLevel = vehicleData.fuel_level,
+                                dirtLevel = vehicleData.dirt_level,
+                            })
+                        end
                     end
                 end
             end
-        end
+        end)
     end)
-end)
+elseif Framework == 'esx' then
+    RegisterNetEvent('esx:playerLoaded', function(source)
+        local src = source
+        local Player = GetPlayer(src)
+        if not Player then return end
+        CreateThread(function()
+            Wait(2000)
+            if Config.FactionVehicles.enabled then
+                local allFactionVehicles = MySQL.query.await('SELECT * FROM r1mus_faction_vehicles')
+                if allFactionVehicles and #allFactionVehicles > 0 then
+                    local vehicleDataForStreaming = {}
+                    for _, vehicle in ipairs(allFactionVehicles) do
+                        local coords = json.decode(vehicle.coords)
+                        local extras = json.decode(vehicle.extras or '[]')
+                        table.insert(vehicleDataForStreaming, {
+                            model = vehicle.model,
+                            plate = vehicle.plate,
+                            coords = coords,
+                            heading = vehicle.heading,
+                            job = vehicle.job,
+                            label = vehicle.label,
+                            livery = vehicle.livery,
+                            extras = extras,
+                            bodyHealth = vehicle.body_health or 1000.0,
+                            engineHealth = vehicle.engine_health or 1000.0,
+                            fuelLevel = vehicle.fuel_level or 100.0,
+                            dirtLevel = vehicle.dirt_level or 0.0
+                        })
+                    end
+                    TriggerClientEvent('r1mus_parking:client:ReceiveFactionVehicleData', src, vehicleDataForStreaming)
+                end
+            end
+            local vehicles = MySQL.query.await('SELECT * FROM r1mus_parked_vehicles WHERE citizenid = ?', {GetIdentifier(Player)})
+            if vehicles then
+                for _, vehicleData in ipairs(vehicles) do
+                    Wait(1000)
+                    if not IsVehicleSpawned(vehicleData.plate) then
+                        local coords = json.decode(vehicleData.coords)
+                        if coords then
+                            MarkVehicleAsSpawned(vehicleData.plate, src)
+                            TriggerClientEvent('r1mus_parking:client:RestoreVehicle', src, {
+                                model = vehicleData.model,
+                                plate = vehicleData.plate,
+                                coords = coords,
+                                heading = vehicleData.heading,
+                                properties = json.decode(vehicleData.mods or '{}'),
+                                bodyHealth = vehicleData.body_health,
+                                engineHealth = vehicleData.engine_health,
+                                fuelLevel = vehicleData.fuel_level,
+                                dirtLevel = vehicleData.dirt_level,
+                            })
+                        end
+                    end
+                end
+            end
+        end)
+    end)
+end
 
 -- Cleanup al desconectar
 AddEventHandler('playerDropped', function()
@@ -665,7 +878,7 @@ QBCore.Commands.Add("locatevehicle", "Locate a vehicle by plate", {{name="plate"
     if Player.PlayerData.group == "admin" or Player.PlayerData.group == "superadmin" then
         local plate = args[1]
         if not plate then
-            TriggerClientEvent('QBCore:Notify', source, "You must specify a plate.", "error")
+            NotifyLocale(source, 'error.no_plate', 'error')
             return
         end
 
@@ -673,12 +886,12 @@ QBCore.Commands.Add("locatevehicle", "Locate a vehicle by plate", {{name="plate"
         if vehicleData and vehicleData.coords then
             local coords = json.decode(vehicleData.coords)
             TriggerClientEvent('r1mus_parking:client:SetVehicleRoute', source, coords)
-            TriggerClientEvent('QBCore:Notify', source, "Vehicle location marked on map.", "success")
+            NotifyLocale(source, 'success.vehicle_location', 'success')
         else
-            TriggerClientEvent('QBCore:Notify', source, "Vehicle not found.", "error")
+            NotifyLocale(source, 'error.vehicle_not_found', 'error')
         end
     else
-        TriggerClientEvent('QBCore:Notify', source, "You do not have permission to use this command.", "error")
+        NotifyLocale(source, 'error.no_permission', 'error')
     end
 end, "admin")
 
@@ -695,7 +908,7 @@ QBCore.Commands.Add("impound", "Incautar un vehículo", {{name="reason", help="R
         local reason = table.concat(args, " ") or "Sin razón especificada"
         TriggerClientEvent('r1mus_parking:client:ImpoundVehicle', source, reason)
     else
-        TriggerClientEvent('QBCore:Notify', source, "No tienes permiso para incautar vehículos", "error")
+        NotifyLocale(source, 'error.no_impound_permission', 'error')
     end
 end)
 
@@ -729,14 +942,14 @@ RegisterNetEvent('r1mus_parking:server:ImpoundVehicle', function(plate, reason)
     
     if canImpound then
         ImpoundVehicle(plate, reason, Config.Impound.fee)
-        TriggerClientEvent('QBCore:Notify', src, "Vehículo incautado y enviado al depósito", "success")
+        NotifyLocale(src, 'success.impounded', 'success')
         
         -- Notificar al dueño si está conectado
         local vehicleData = MySQL.single.await('SELECT citizenid FROM r1mus_parked_vehicles WHERE plate = ?', {plate})
         if vehicleData then
             local Owner = QBCore.Functions.GetPlayerByCitizenId(vehicleData.citizenid)
             if Owner then
-                TriggerClientEvent('QBCore:Notify', Owner.PlayerData.source, "Tu vehículo " .. plate .. " ha sido incautado", "error")
+                -- Puedes agregar una notificación personalizada aquí si lo deseas
             end
         end
     end
@@ -753,40 +966,39 @@ QBCore.Commands.Add("retrieveimpound", "Recuperar vehículo del depósito", {}, 
     
     if impoundedVehicles and #impoundedVehicles > 0 then
         -- Aquí podrías abrir un menú, por ahora solo mostramos la lista
-        TriggerClientEvent('QBCore:Notify', source, "Tienes " .. #impoundedVehicles .. " vehículo(s) en el depósito", "info")
+        NotifyLocale(source, 'info.impound_count', 'info', {count = #impoundedVehicles})
         for _, veh in ipairs(impoundedVehicles) do
             print("- " .. veh.plate .. " | Multa: $" .. veh.impound_fee .. " | Razón: " .. veh.impound_reason)
         end
     else
-        TriggerClientEvent('QBCore:Notify', source, "No tienes vehículos en el depósito", "error")
+        NotifyLocale(source, 'error.no_impounded_vehicles', 'error')
     end
 end)
 
--- Callback para pagar y recuperar vehículo
-QBCore.Functions.CreateCallback('r1mus_parking:server:PayImpoundFee', function(source, cb, plate)
-    local Player = QBCore.Functions.GetPlayer(source)
-    if not Player then return cb(false) end
-    
-    local vehicleData = MySQL.single.await('SELECT * FROM r1mus_parked_vehicles WHERE plate = ? AND citizenid = ? AND impounded = true',
-        {plate, Player.PlayerData.citizenid})
-    
-    if vehicleData then
-        local fee = vehicleData.impound_fee or Config.Impound.fee
-        
-        if Player.Functions.RemoveMoney('bank', fee) or Player.Functions.RemoveMoney('cash', fee) then
-            -- Quitar incautación
-            MySQL.update('UPDATE r1mus_parked_vehicles SET impounded = false, impound_date = NULL, impound_reason = NULL WHERE plate = ?', {plate})
-            
-            cb(true)
-            TriggerClientEvent('QBCore:Notify', source, "Has pagado $" .. fee .. " y recuperado tu vehículo", "success")
+
+-- Callback para pagar y recuperar vehículo (universal)
+if QBCore and QBCore.Functions and QBCore.Functions.CreateCallback then
+    QBCore.Functions.CreateCallback('r1mus_parking:server:PayImpoundFee', function(source, cb, plate)
+        local Player = GetPlayer(source)
+        if not Player then return cb(false) end
+        local identifier = GetIdentifier(Player)
+        local vehicleData = MySQL.single.await('SELECT * FROM r1mus_parked_vehicles WHERE plate = ? AND citizenid = ? AND impounded = true', {plate, identifier})
+        if vehicleData then
+            local fee = vehicleData.impound_fee or Config.Impound.fee
+            local paid = RemoveMoney(Player, 'bank', fee) or RemoveMoney(Player, 'cash', fee)
+            if paid then
+                MySQL.update('UPDATE r1mus_parked_vehicles SET impounded = false, impound_date = NULL, impound_reason = NULL WHERE plate = ?', {plate})
+                cb(true)
+                NotifyLocale(source, 'success.paid_and_retrieved', 'success', {fee = fee})
+            else
+                cb(false)
+                NotifyLocale(source, 'error.not_enough_money', 'error', {fee = fee})
+            end
         else
             cb(false)
-            TriggerClientEvent('QBCore:Notify', source, "No tienes suficiente dinero ($" .. fee .. ")", "error")
         end
-    else
-        cb(false)
-    end
-end)
+    end)
+end
 
 -- Comando para reinicializar vehículos de facción
 QBCore.Commands.Add("resetfactionvehicles", "Reset and reinitialize all faction vehicles", {}, false, function(source, args)
@@ -831,7 +1043,7 @@ QBCore.Commands.Add("resetfactionvehicles", "Reset and reinitialize all faction 
                 end
                 
                 TriggerClientEvent('r1mus_parking:client:ReceiveFactionVehicleData', -1, vehicleDataForStreaming)
-                TriggerClientEvent('QBCore:Notify', source, "Faction vehicles reset and reinitialized", "success")
+        NotifyLocale(source, 'success.faction_vehicles_reset', 'success')
             end
         end
     end
@@ -854,7 +1066,7 @@ QBCore.Commands.Add("debugfaction", "Debug faction vehicles system", {}, false, 
             end
         end
         
-        TriggerClientEvent('QBCore:Notify', source, "Check server console for debug info", "info")
+        NotifyLocale(source, 'info.check_console_debug', 'info')
     end
 end, "admin")
 
@@ -890,9 +1102,9 @@ QBCore.Commands.Add("spawnfactionvehicles", "Force spawn all faction vehicles", 
                 Wait(500)
             end
             
-            TriggerClientEvent('QBCore:Notify', source, "Spawned " .. #allFactionVehicles .. " faction vehicles", "success")
+            NotifyLocale(source, 'success.spawned_faction_vehicles', 'success', {count = #allFactionVehicles})
         else
-            TriggerClientEvent('QBCore:Notify', source, "No faction vehicles found in database", "error")
+            NotifyLocale(source, 'error.no_faction_vehicles', 'error')
         end
     end
 end, "admin")
@@ -902,7 +1114,7 @@ QBCore.Commands.Add("getvehicle", "Teleport a vehicle to your location", {{name=
     if Player.PlayerData.group == "admin" or Player.PlayerData.group == "superadmin" then
         local plate = args[1]
         if not plate then
-            TriggerClientEvent('QBCore:Notify', source, "You must specify a plate.", "error")
+            NotifyLocale(source, 'error.no_plate', 'error')
             return
         end
 
@@ -916,11 +1128,11 @@ QBCore.Commands.Add("getvehicle", "Teleport a vehicle to your location", {{name=
             plate
         })
 
-        TriggerClientEvent('QBCore:Notify', source, "Vehicle has been teleported to your location. It will spawn shortly.", "success")
+        NotifyLocale(source, 'success.vehicle_teleported', 'success')
         -- We need a way to force the vehicle to respawn on the client
         -- For now, we'll just notify the user.
     else
-        TriggerClientEvent('QBCore:Notify', source, "You do not have permission to use this command.", "error")
+        NotifyLocale(source, 'error.no_permission', 'error')
     end
 end, "admin")
 
@@ -929,7 +1141,7 @@ QBCore.Commands.Add("gotovehicle", "Teleport to a vehicle's location", {{name="p
     if Player.PlayerData.group == "admin" or Player.PlayerData.group == "superadmin" then
         local plate = args[1]
         if not plate then
-            TriggerClientEvent('QBCore:Notify', source, "You must specify a plate.", "error")
+            NotifyLocale(source, 'error.no_plate', 'error')
             return
         end
 
@@ -938,9 +1150,9 @@ QBCore.Commands.Add("gotovehicle", "Teleport to a vehicle's location", {{name="p
             local coords = json.decode(vehicleData.coords)
             TriggerClientEvent('r1mus_parking:client:TeleportToCoords', source, coords)
         else
-            TriggerClientEvent('QBCore:Notify', source, "Vehicle not found.", "error")
+            NotifyLocale(source, 'error.vehicle_not_found', 'error')
         end
     else
-        TriggerClientEvent('QBCore:Notify', source, "You do not have permission to use this command.", "error")
+        NotifyLocale(source, 'error.no_permission', 'error')
     end
 end, "admin")

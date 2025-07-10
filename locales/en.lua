@@ -1,39 +1,31 @@
-local Translations = {
+return {
     error = {
-        not_your_vehicle = 'This is not your vehicle',
-        no_parking_zone = 'You cannot park in this area',
-        max_vehicles_reached = 'You have reached your maximum number of parked vehicles',
-        vehicle_not_found = 'Vehicle not found',
-        already_parked = 'This vehicle is already parked here',
-        no_nearby_vehicles = 'No nearby vehicles found',
-        no_faction_permission = 'You do not have permission to use this faction vehicle',
-        faction_vehicle_in_use = 'This faction vehicle is already in use',
+        no_plate = 'You must specify a plate.',
+        vehicle_not_found = 'Vehicle not found.',
+        no_permission = 'You do not have permission to use this command.',
+        no_impound_permission = 'You do not have permission to impound vehicles',
+        no_impounded_vehicles = 'You have no impounded vehicles',
+        not_enough_money = 'You do not have enough money (${fee})',
+        no_faction_vehicles = 'No faction vehicles found in database',
+        no_faction_permission = 'You do not have permission to use this faction vehicle.',
+        no_nearby_vehicles = 'No nearby vehicles found.',
     },
     success = {
-        vehicle_parked = 'Vehicle parked successfully',
-        vehicle_retrieved = 'Vehicle retrieved successfully',
-        position_saved = 'Vehicle position saved',
-        faction_vehicle_locked = 'Faction vehicle locked',
-        faction_vehicle_unlocked = 'Faction vehicle unlocked',
+        vehicle_location = 'Vehicle location marked on map.',
+        impounded = 'Vehicle impounded and sent to depot',
+        paid_and_retrieved = 'You paid ${fee} and recovered your vehicle',
+        faction_vehicles_reset = 'Faction vehicles reset and reinitialized',
+        spawned_faction_vehicles = 'Spawned ${count} faction vehicles',
+        vehicle_teleported = 'Vehicle has been teleported to your location. It will spawn shortly.',
+        faction_vehicle_locked = 'Faction vehicle locked.',
+        faction_vehicle_unlocked = 'Faction vehicle unlocked.',
+        vehicle_parked = 'Vehicle parked successfully.',
+        vehicle_retrieved = 'Vehicle retrieved from parking.',
     },
     info = {
-        checking_vehicles = 'Checking nearby vehicles...',
-        vehicle_located = 'Vehicle located at marked position',
-        approaching_limit = 'Warning: Approaching parking limit',
-        faction_vehicles_loading = 'Loading faction vehicles...',
-        no_faction_vehicles = 'No faction vehicles available for your job',
-    },
-    menu = {
-        parking_menu = 'Parking Menu',
-        park_vehicle = 'Park Vehicle',
-        retrieve_vehicle = 'Retrieve Vehicle',
-        vehicle_list = 'Parked Vehicles',
-        faction_vehicles = 'Faction Vehicles',
-        view_faction_vehicles = 'View Faction Vehicles',
+        impound_count = 'You have ${count} vehicle(s) in the depot',
+        check_console_debug = 'Check server console for debug info',
+        vehicle_located = 'Vehicle located on the map.',
+        no_faction_vehicles = 'No faction vehicles available.',
     }
 }
-
-Lang = Lang or Locale:new({
-    phrases = Translations,
-    warnOnMissing = true
-})
