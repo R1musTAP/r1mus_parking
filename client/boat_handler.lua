@@ -87,12 +87,6 @@ function GetNearestDock(coords)
     return nearestDock, nearestDistance
 end
 
--- Función para verificar si está en un muelle
-function IsNearDock(coords)
-    local _, distance = GetNearestDock(coords)
-    return distance <= 50.0 -- Dentro de 50 metros de cualquier muelle
-end
-
 -- Thread para detectar cuando se guarda un bote
 CreateThread(function()
     if not Config.BoatParking.enabled then return end
@@ -105,31 +99,22 @@ CreateThread(function()
             local vehicle = GetVehiclePedIsIn(playerPed, false)
             
             if IsVehicleABoat(vehicle) then
-                -- Es un bote, verificar si está en agua o cerca de un muelle
+                -- Solo verificamos si está en el agua
                 local coords = GetEntityCoords(vehicle)
                 local inWater = IsEntityInWater(vehicle)
-                local nearDock = IsNearDock(coords)
                 
-                if not inWater and not nearDock then
-                    -- Bote fuera del agua y lejos de muelles
-                    ShowNotification(Lang:t('error.not_in_water'), 'error')
+                if inWater then
+                    -- Si está en el agua, no permitimos estacionarlo
+                    ShowNotification(Lang:t('error.cant_park_in_water'), 'error')
                 end
             end
         end
     end
 end)
 
--- Crear blips para los muelles
+-- Thread principal para el manejo de barcos
 CreateThread(function()
     if not Config.BoatParking.enabled then return end
-    
-    for _, dock in ipairs(Config.BoatParking.docks) do
-        local blip = AddBlipForCoord(dock.coords.x, dock.coords.y, dock.coords.z)
-        SetBlipSprite(blip, dock.blip.sprite)
-        SetBlipDisplay(blip, 4)
-        SetBlipScale(blip, dock.blip.scale)
-        SetBlipColour(blip, dock.blip.color)
-        SetBlipAsShortRange(blip, true)
         BeginTextCommandSetBlipName("STRING")
         AddTextComponentString(dock.name)
         EndTextCommandSetBlipName(blip)

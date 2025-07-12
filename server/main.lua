@@ -3,6 +3,35 @@ local ParkedVehicles = {}
 local SpawnedVehicles = {}
 local FactionVehicles = {} -- Track de vehículos de facción spawneados
 
+-- Inicializar vehículos de facción
+CreateThread(function()
+    Wait(1000) -- Esperar a que todo esté listo
+    InitializeFactionVehicles()
+end)
+
+-- Función para inicializar vehículos de facción
+function InitializeFactionVehicles()
+    if not Config.FactionVehicles or not Config.FactionVehicles.enabled then return end
+    
+    local factionVehicles = {}
+    for jobName, jobData in pairs(Config.FactionVehicles.factions) do
+        for _, vehicleData in ipairs(jobData.vehicles) do
+            table.insert(factionVehicles, {
+                plate = jobName .. "-" .. string.upper(vehicleData.model),
+                model = vehicleData.model,
+                coords = vehicleData.coords,
+                heading = vehicleData.heading,
+                job = jobName,
+                label = vehicleData.label,
+                livery = vehicleData.livery,
+                extras = vehicleData.extras
+            })
+        end
+    end
+    
+    FactionVehicles = factionVehicles
+    print("^2Vehículos de facción inicializados: " .. #FactionVehicles)
+end
 
 -- Función para verificar si un vehículo existe
 local function CheckVehicleExists(plate, citizenid)
@@ -712,6 +741,12 @@ end)
 
 -- Función para incautar vehículo
 local function ImpoundVehicle(plate, reason, fee)
+    -- Verificar si el vehículo existe primero
+    local result = MySQL.single.await('SELECT * FROM r1mus_parked_vehicles WHERE plate = ?', {plate})
+    if not result then
+        return false
+    end
+
     -- Actualizar en la base de datos
     MySQL.update('UPDATE r1mus_parked_vehicles SET impounded = ?, impound_date = ?, impound_reason = ?, impound_fee = ?, coords = ?, heading = ? WHERE plate = ?',
     {
@@ -719,13 +754,14 @@ local function ImpoundVehicle(plate, reason, fee)
         os.time(),
         reason or "Incautado por las autoridades",
         fee or Config.Impound.fee,
-        json.encode(Config.Impound.location),
-        Config.Impound.heading,
+        json.encode(Config.Impound.location.entrance),
+        Config.Impound.location.gate.heading,
         plate
     })
     
     -- Desmarcar como spawneado
     UnmarkVehicleAsSpawned(plate)
+    return true
 end
 
 -- Sistema de incautación mejorado

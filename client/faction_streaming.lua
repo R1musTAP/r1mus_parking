@@ -2,8 +2,15 @@
 local QBCore = exports['qb-core']:GetCoreObject()
 local streamedFactionVehicles = {}
 local factionVehicleData = {}
+local factionVehicles = {}  -- Añadido esta línea que faltaba
 local STREAM_DISTANCE = Config and Config.Optimization and Config.Optimization.streamDistance or 150.0
 local CHECK_INTERVAL = Config and Config.Optimization and Config.Optimization.streamCheckInterval or 2000
+
+-- Inicialización del sistema
+CreateThread(function()
+    Wait(1000) -- Esperar a que todo esté listo
+    TriggerServerEvent('r1mus_parking:server:RequestFactionVehicleData')
+end)
 
 -- Recibir datos de vehículos de facción del servidor
 RegisterNetEvent('r1mus_parking:client:ReceiveFactionVehicleData', function(data)

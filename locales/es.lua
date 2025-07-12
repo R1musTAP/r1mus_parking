@@ -9,12 +9,22 @@ local Translations = {
         no_faction_permission = 'No tienes permiso para usar este vehículo de facción',
         faction_vehicle_in_use = 'Este vehículo de facción ya está en uso',
         not_in_water = '⚠️ Los botes deben estar en el agua para estacionar',
+        cant_park_in_water = 'No puedes estacionar el barco mientras está en el agua',
         not_enough_money = 'No tienes suficiente dinero - Necesitas: $%{amount}',
         no_impounded_vehicles = 'No tienes vehículos en el depósito',
         no_permission_impound = 'No tienes permiso para incautar vehículos',
         specify_plate = 'Debes especificar una matrícula',
         cannot_locate_vehicle = 'No se puede localizar este vehículo',
-        no_locate_permission = 'No tienes permiso para localizar este vehículo'
+        no_locate_permission = 'No tienes permiso para localizar este vehículo',
+        no_vehicle = 'No hay vehículo cerca',
+        must_be_closer = 'Debes estar más cerca del vehículo para incautarlo',
+        not_in_vehicle = 'No estás en un vehículo',
+        not_owner = 'No eres el dueño de este vehículo',
+        not_police = 'No estás autorizado',
+        not_mechanic = 'No estás autorizado',
+        already_impounded = 'El vehículo ya está incautado',
+        impound_cancelled = 'Incautación cancelada',
+        invalid_location = 'Ubicación no válida para este tipo de vehículo',
     },
     success = {
         vehicle_parked = 'Vehículo estacionado correctamente',
@@ -25,7 +35,9 @@ local Translations = {
         vehicle_impounded = 'Vehículo incautado correctamente',
         vehicle_recovered = 'Vehículo recuperado - Pago realizado: $%{amount}',
         personal_vehicle_locked = 'Vehículo bloqueado',
-        personal_vehicle_unlocked = 'Vehículo desbloqueado'
+        personal_vehicle_unlocked = 'Vehículo desbloqueado',
+        vehicle_impounded = 'Vehículo incautado correctamente',
+        vehicle_released = 'Vehículo liberado del depósito',
     },
     info = {
         checking_vehicles = 'Comprobando vehículos cercanos...',
@@ -34,7 +46,10 @@ local Translations = {
         faction_vehicles_loading = 'Cargando vehículos de facción...',
         no_faction_vehicles = 'No hay vehículos de facción disponibles para tu trabajo',
         vehicle_at_impound = 'El vehículo está en el depósito municipal',
-        impound_fee = 'Tarifa del depósito: $%{amount}'
+        impound_fee = 'Tarifa del depósito: $%{amount}',
+        impound_fee = 'Multa de incautación: $%s',
+        impound_reason = 'Razón: %s',
+        impound_by = 'Incautado por: %s',
     },
     menu = {
         parking_menu = 'Menú de Estacionamiento',
@@ -49,6 +64,11 @@ local Translations = {
     commands = {
         impound_command = 'Incautar un vehículo',
         locate_command = 'Localizar tu vehículo'
+    },
+    progress = {
+        impounding_vehicle = 'Incautando vehículo...',
+        releasing_vehicle = 'Liberando vehículo...',
+        checking_vehicle = 'Revisando vehículo...',
     }
 }
 

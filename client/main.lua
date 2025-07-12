@@ -559,16 +559,137 @@ RegisterNetEvent('r1mus_parking:client:OpenImpoundMenu', function()
     end)
 end)
 
+-- Sistema de control de posiciones del depósito
+local occupiedPositions = {}
+
+-- Función para encontrar una posición de spawn disponible
+local function GetAvailableSpawnPosition()
+    for index, position in ipairs(Config.Impound.spawnPositions) do
+        if not occupiedPositions[index] then
+            occupiedPositions[index] = true
+            -- Liberar la posición después de 30 segundos
+            SetTimeout(30000, function()
+                occupiedPositions[index] = false
+            end)
+            return position
+        end
+    end
+    -- Si todas las posiciones están ocupadas, usar la primera
+    return Config.Impound.spawnPositions[1]
+end
+
+-- Control de puerta del depósito
+local gateObject = nil
+local gateState = false -- false = cerrado, true = abierto
+
+-- Función para controlar la puerta del depósito
+local function ControlImpoundGate(state)
+    if not gateObject then
+        gateObject = GetClosestObjectOfType(
+            Config.Impound.location.gate.coords.x,
+            Config.Impound.location.gate.coords.y,
+            Config.Impound.location.gate.coords.z,
+            5.0,
+            Config.Impound.location.gate.model,
+            false, false, false
+        )
+    end
+
+    if DoesEntityExist(gateObject) then
+        if state then -- Abrir
+            SetEntityHeading(gateObject, Config.Impound.location.gate.heading + 90.0)
+        else -- Cerrar
+            SetEntityHeading(gateObject, Config.Impound.location.gate.heading)
+        end
+        gateState = state
+    end
+end
+
 -- Evento para recuperar vehículo del depósito
 RegisterNetEvent('r1mus_parking:client:RetrieveImpoundedVehicle', function(data)
+    if not data or not data.plate then return end
+
     QBCore.Functions.TriggerCallback('r1mus_parking:server:PayImpoundFee', function(success)
         if success then
-            QBCore.Functions.Notify('Vehículo recuperado - Pago realizado: $' .. data.fee, 'success')
-            TriggerServerEvent('r1mus_parking:server:RetrieveVehicle', data.plate)
+            -- Abrir la puerta
+            ControlImpoundGate(true)
+            
+            -- Obtener el vehículo del depósito
+            local vehicles = GetGamePool('CVehicle')
+            local impoundedVehicle = nil
+            
+            for _, vehicle in ipairs(vehicles) do
+                if GetVehicleNumberPlateText(vehicle) == data.plate then
+                    impoundedVehicle = vehicle
+                    break
+                end
+            end
+
+            if impoundedVehicle then
+                -- Desbloquear el vehículo específico
+                SetVehicleDoorsLocked(impoundedVehicle, 1)
+                
+                -- Dar llaves al jugador
+                TriggerServerEvent('vehiclekeys:server:GiveVehicleKeys', data.plate)
+                
+                -- Notificar al jugador
+                ShowNotification(Lang:t('success.vehicle_released'), 'success')
+                
+                -- Cerrar la puerta después de 30 segundos
+                SetTimeout(30000, function()
+                    ControlImpoundGate(false)
+                end)
+            else
+                ShowNotification(Lang:t('error.vehicle_not_found'), 'error')
+            end
         else
-            QBCore.Functions.Notify('No tienes suficiente dinero - Necesitas: $' .. data.fee, 'error')
+            ShowNotification(Lang:t('error.insufficient_funds'), 'error')
         end
     end, data.fee)
+end)
+
+-- Evento para cuando un vehículo es incautado
+RegisterNetEvent('r1mus_parking:server:OnVehicleImpounded', function(data)
+    if not data or not data.plate then return end
+    
+    -- Encontrar una posición libre en el depósito
+    local spawnPosition = nil
+    for _, pos in ipairs(Config.Impound.location.spawnPositions) do
+        local clear = true
+        local vehicles = GetGamePool('CVehicle')
+        for _, v in ipairs(vehicles) do
+            local vehCoords = GetEntityCoords(v)
+            local distance = #(vehCoords - pos.coords)
+            if distance < 3.0 then
+                clear = false
+                break
+            end
+        end
+        if clear then
+            spawnPosition = pos
+            break
+        end
+    end
+
+    if spawnPosition then
+        -- Spawnear el vehículo en el depósito
+        local hash = GetHashKey(data.model)
+        RequestModel(hash)
+        while not HasModelLoaded(hash) do Wait(0) end
+        
+        local vehicle = CreateVehicle(hash, spawnPosition.coords.x, spawnPosition.coords.y, spawnPosition.coords.z, spawnPosition.heading, true, false)
+        
+        SetVehicleNumberPlateText(vehicle, data.plate)
+        SetVehicleDoorsLocked(vehicle, 2) -- Bloquear el vehículo
+        SetEntityAsMissionEntity(vehicle, true, true)
+        
+        -- Aplicar propiedades y daños
+        if data.properties then
+            SetVehicleProperties(vehicle, data.properties)
+        end
+        
+        SetModelAsNoLongerNeeded(hash)
+    end
 end)
 
 RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
@@ -819,6 +940,100 @@ RegisterNetEvent('r1mus_parking:client:ImpoundVehicle', function(reason)
         end)
     else
         QBCore.Functions.Notify('No hay vehículo cerca para incautar', 'error')
+    end
+end)
+
+-- Función para verificar si está lo suficientemente cerca del vehículo
+local function IsNearVehicle(vehicle)
+    if not vehicle then return false end
+    local playerPed = PlayerPedId()
+    local playerCoords = GetEntityCoords(playerPed)
+    local vehicleCoords = GetEntityCoords(vehicle)
+    local distance = #(playerCoords - vehicleCoords)
+    return distance <= 3.0 -- Debe estar a 3 metros o menos
+end
+
+-- Función para incautar vehículo
+local function ImpoundVehicle(vehicle)
+    if not vehicle then
+        ShowNotification(Lang:t('error.no_vehicle'), 'error')
+        return
+    end
+
+    if not IsNearVehicle(vehicle) then
+        ShowNotification(Lang:t('error.must_be_closer'), 'error')
+        return
+    end
+
+    local plate = GetVehicleNumberPlateText(vehicle)
+    local model = GetEntityModel(vehicle)
+    local bodyHealth = GetVehicleBodyHealth(vehicle)
+    local engineHealth = GetVehicleEngineHealth(vehicle)
+    local properties = GetVehicleProperties(vehicle)
+
+    -- Buscar una posición disponible en el depósito
+    local spawnPosition = nil
+    for _, pos in ipairs(Config.Impound.location.spawnPositions) do
+        local clear = true
+        local vehicles = GetGamePool('CVehicle')
+        for _, v in ipairs(vehicles) do
+            local vehCoords = GetEntityCoords(v)
+            local distance = #(vehCoords - pos.coords)
+            if distance < 3.0 then
+                clear = false
+                break
+            end
+        end
+        if clear then
+            spawnPosition = pos
+            break
+        end
+    end
+
+    if not spawnPosition then
+        ShowNotification(Lang:t('error.impound_full'), 'error')
+        return
+    end
+
+    -- Animación de inspección del vehículo
+    TaskStartScenarioInPlace(PlayerPedId(), "WORLD_HUMAN_CLIPBOARD", 0, true)
+    QBCore.Functions.Progressbar("impounding_vehicle", Lang:t('progress.impounding_vehicle'), 10000, false, true, {
+        disableMovement = true,
+        disableCarMovement = true,
+        disableMouse = false,
+        disableCombat = true,
+    }, {}, {}, {}, function() -- Done
+        ClearPedTasks(PlayerPedId())
+        
+        -- Enviar datos al servidor
+        TriggerServerEvent('r1mus_parking:server:ImpoundVehicle', {
+            plate = plate,
+            vehicleCoords = coords,
+            heading = heading,
+            model = model,
+            bodyHealth = bodyHealth,
+            engineHealth = engineHealth
+        })
+
+        -- Eliminar el vehículo localmente
+        DeleteVehicle(vehicle)
+        ShowNotification(Lang:t('success.vehicle_impounded'), 'success')
+    end, function() -- Cancel
+        ClearPedTasks(PlayerPedId())
+        ShowNotification(Lang:t('error.impound_cancelled'), 'error')
+    end)
+end
+
+RegisterNetEvent('r1mus_parking:client:ImpoundVehicle', function()
+    local vehicle = GetVehiclePedIsIn(PlayerPedId(), true)
+    if not vehicle then
+        vehicle = GetClosestVehicle(GetEntityCoords(PlayerPedId()), 5.0)
+    end
+    
+    if vehicle then
+        ImpoundVehicle(vehicle)
+    else
+        ShowNotification(Lang:t('error.no_vehicle'), 'error')
     end
 end)
 
