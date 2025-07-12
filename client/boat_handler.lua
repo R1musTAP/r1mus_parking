@@ -39,14 +39,39 @@ function IsVehicleABoat(vehicle)
     return vehicleClass == 14 -- 14 = Boats
 end
 
--- Función para verificar si está en agua
-function IsEntityInWater(entity)
+-- Función para verificar si está en agua profunda
+function IsEntityInDeepWater(entity)
     local coords = GetEntityCoords(entity)
     local _, waterHeight = GetWaterHeight(coords.x, coords.y, coords.z)
-    return waterHeight ~= false and coords.z <= waterHeight + 2.0
+    if not waterHeight then return false end
+    
+    -- Verificar profundidad
+    local depth = waterHeight - GetEntityHeightAboveGround(entity)
+    return depth >= Config.BoatParking.minWaterDepth
 end
 
--- Función para obtener el muelle más cercano
+-- Función para verificar si se puede estacionar el bote
+function CanParkBoat(vehicle)
+    if not Config.BoatParking.requireDock then
+        -- Si no se requiere muelle, solo verificar que esté en agua profunda
+        return IsEntityInDeepWater(vehicle)
+    else
+        -- Si se requiere muelle, verificar ambas condiciones
+        local coords = GetEntityCoords(vehicle)
+        local nearDock = false
+        
+        for _, dock in pairs(Config.BoatParking.docks) do
+            if #(coords - dock.coords) < (dock.radius or 50.0) then
+                nearDock = true
+                break
+            end
+        end
+        
+        return nearDock and IsEntityInDeepWater(vehicle)
+    end
+end
+
+-- Función para obtener el muelle más cercano (solo para blips)
 function GetNearestDock(coords)
     local nearestDock = nil
     local nearestDistance = 999999.0
@@ -87,7 +112,7 @@ CreateThread(function()
                 
                 if not inWater and not nearDock then
                     -- Bote fuera del agua y lejos de muelles
-                    QBCore.Functions.Notify('⚠️ Los botes deben estar en el agua o cerca de un muelle', 'error', 5000)
+                    ShowNotification(Lang:t('error.not_in_water'), 'error')
                 end
             end
         end

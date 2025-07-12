@@ -1,13 +1,17 @@
 fx_version 'cerulean'
 game 'gta5'
 
+name 'r1mus_parking'
 author 'R1musTAP'
-description 'Realistic Parking System for QBCore'
-version '1.0.0'
+description 'Advanced Realistic Parking System for QBCore with persistent damage and faction vehicles'
+version '1.1.0'
+
+repository 'https://github.com/R1musTAP/r1mus_parking'
+license 'GPL-3.0-or-later'
 
 shared_scripts {
     '@qb-core/shared/locale.lua',
-    'locales/en.lua', -- Añadir más idiomas según sea necesario
+    'locales/*.lua',
     'config.lua'
 }
 
@@ -34,7 +38,7 @@ server_scripts {
 dependencies {
     'qb-core',
     'oxmysql',
-    'PolyZone',
+    'PolyZone'
 }
 
 lua54 'yes'

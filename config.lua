@@ -1,124 +1,216 @@
 Config = {}
 
-Config.Debug = true -- Activar para ver mensajes de debug
-Config.SaveInterval = 30000 -- Guardar posición cada 30 segundos
-Config.MinDistanceToSave = 5.0 -- Distancia mínima para actualizar posición
+--[[ GENERAL CONFIGURATION ]]--
+Config.Debug = false                    -- Enable to see debug messages in console
+Config.Language = 'es'                  -- System language: 'es' for Spanish, 'en' for English
 
+--[[ OPTIMIZATION SETTINGS ]]--
+Config.Optimization = {
+    streamingEnabled = true,           -- Enable vehicle streaming system
+    streamingRadius = 150.0,           -- Distance to start streaming vehicles (meters)
+    maxVehiclesPerPlayer = 10,         -- Maximum vehicles to spawn per player
+    spawnDelay = 500,                 -- Delay between vehicle spawns (ms)
+    saveInterval = 300000,            -- Auto-save interval (5 minutes)
+    maxStreamedVehicles = 50,         -- Maximum vehicles to stream at once
+    vehicleCheckInterval = 5000,      -- Interval to check for missing vehicles (ms)
+    cleanupInterval = 60000,          -- Interval to cleanup unused vehicle data (ms)
+    distanceCheck = 200.0,            -- Distance to check for vehicle existence
+    maxRetries = 3                    -- Maximum retries for vehicle spawning
+}
+
+--[[ DAMAGE PERSISTENCE ]]--
+Config.DamagePersistence = {
+    enabled = true,                    -- Enable damage persistence system
+    saveBodyDamage = true,            -- Save body damage
+    saveEngineDamage = true,          -- Save engine damage
+    saveDoors = true,                 -- Save door states
+    saveWindows = true,               -- Save window states
+    saveTires = true,                 -- Save tire states
+    minimumHealth = 100.0             -- Minimum health to save (0-1000)
+
+--[[ SISTEMAS DE INTERFAZ ]]--
+-- Sistema de Notificaciones
+Config.NotificationSystem = {
+    type = 'qb',                       -- Sistema de notificación: 'qb', 'origen', 'ox', 'esx', 'custom'
+    timeout = 5000,                    -- Tiempo predeterminado para notificaciones (ms)
+    customNotify = function(message, type)
+        -- Función para sistemas de notificación personalizados
+        -- exports['tu-sistema']:notify(message, type)
+    end
+}
+
+-- Sistema de Menús
+Config.MenuSystem = 'qb'               -- 'qb' (default), 'ox', 'custom'
+
+--[[ CONFIGURACIÓN DE VEHÍCULOS ]]--
+-- Sistema de Bloqueo
 Config.VehicleLock = {
-    enabled = true,
-    defaultKey = 'X',
-    soundEnabled = true,
-    lockSound = "door-bolt-4",
-    unlockSound = "door-bolt-4"
+    enabled = true,                    -- Activar/desactivar sistema de bloqueo
+    defaultKey = 'L',                  -- Tecla predeterminada para bloquear/desbloquear
+    soundEnabled = true,               -- Activar/desactivar sonidos
+    lockSound = "door-bolt-4",         -- Sonido al bloquear
+    unlockSound = "door-bolt-4"        -- Sonido al desbloquear
 }
 
--- Configuración general
-Config.Debug = false
-Config.SaveInterval = 30000 -- Guardar posición cada 30 segundos
-Config.MinDistanceToSave = 5.0 -- Distancia mínima para actualizar posición
 
-
--- Configuración de degradación de vehículos
+--[[ SISTEMA DE DEGRADACIÓN ]]--
 Config.VehicleDegradation = {
-    enabled = false,
-    interval = 3600000, -- Comprobar cada hora
-    healthDecrease = 0.5, -- Porcentaje de salud que pierde por hora
-    fuelDecrease = 0.2, -- Porcentaje de combustible que pierde por hora
-    minimumHealth = 500.0, -- Salud mínima del vehículo
-    minimumFuel = 5.0, -- Combustible mínimo
+    enabled = false,                   -- Activar/desactivar sistema de degradación
+    interval = 3600000,               -- Intervalo de comprobación (1 hora)
+    healthDecrease = 0.5,             -- % de salud que pierde por hora
+    fuelDecrease = 0.2,              -- % de combustible que pierde por hora
+    minimumHealth = 500.0,            -- Salud mínima del vehículo
+    minimumFuel = 5.0,               -- Combustible mínimo
+    notifications = {
+        enabled = true,               -- Activar notificaciones de estado
+        healthThreshold = 600.0,      -- Notificar cuando la salud baje de este valor
+        fuelThreshold = 20.0         -- Notificar cuando el combustible baje de este %
+    }
 }
 
--- Configuración de notificaciones
-Config.Notifications = {
-    enabled = true,
-    healthThreshold = 600.0, -- Notificar cuando la salud baje de este valor
-    fuelThreshold = 20.0, -- Notificar cuando el combustible baje de este porcentaje
-}
 
--- Configuración de respawn de vehículos
+
+--[[ SISTEMA DE RESPAWN ]]--
 Config.VehicleRespawn = {
-    enabled = true,
-    maxDistance = 100.0, -- Distancia máxima para hacer respawn de vehículos
-    checkInterval = 10000, -- Intervalo para comprobar vehículos cercanos
+    enabled = true,                    -- Activar/desactivar sistema de respawn
+    maxDistance = 100.0,              -- Distancia máxima para hacer respawn
+    checkInterval = 10000,            -- Intervalo de comprobación (10 segundos)
 }
 
--- Configuración de Depósito/Incautación
+--[[ SISTEMA DE DEPÓSITO/INCAUTACIÓN ]]--
 Config.Impound = {
-    enabled = false,
-    location = vector3(409.0, -1625.0, 29.3), -- Ubicación del depósito
-    heading = 230.0,
+    enabled = true,                    -- Activar/desactivar sistema de depósito
+    fee = 500,                        -- Costo para recuperar vehículo ($)
+    autoImpoundAfterDays = 7,         -- Auto-incautar después de X días sin uso
+    
+    -- Permisos de incautación
+    permissions = {
+        police = true,                -- Policía puede incautar
+        mechanic = true              -- Mecánicos pueden incautar
+    },
+
+    -- Ubicación principal y posiciones de spawn
+    location = {
+        coords = vector3(409.0, -1625.0, 29.3),
+        heading = 230.0
+    },
+
+    -- Posiciones de spawn para vehículos incautados
+    spawnPositions = {
+        -- Fila 1
+        {coords = vector3(407.12, -1645.67, 29.29), heading = 320.0},
+        {coords = vector3(404.43, -1643.86, 29.29), heading = 320.0},
+        {coords = vector3(401.65, -1642.15, 29.29), heading = 320.0},
+        {coords = vector3(398.77, -1640.34, 29.29), heading = 320.0},
+        {coords = vector3(395.89, -1638.53, 29.29), heading = 320.0},
+        -- Fila 2
+        {coords = vector3(409.81, -1639.82, 29.29), heading = 320.0},
+        {coords = vector3(407.03, -1638.01, 29.29), heading = 320.0},
+        {coords = vector3(404.25, -1636.20, 29.29), heading = 320.0},
+        {coords = vector3(401.37, -1634.39, 29.29), heading = 320.0}
+    },
+    
+    -- Configuración del NPC
+    ped = {
+        enabled = true,
+        model = "s_m_y_cop_01",
+        coords = vector3(409.0, -1625.0, 28.3),
+        heading = 230.0,
+        scenario = "WORLD_HUMAN_CLIPBOARD"
+    },
+    
+    -- Configuración del blip en el mapa
     blip = {
         enabled = true,
         sprite = 68,
         color = 3,
         scale = 0.8,
         label = "Depósito Municipal"
-    },
-    fee = 500, -- Costo para recuperar vehículo
-    policeCanImpound = true, -- Policía puede incautar
-    mechanicCanImpound = true, -- Mecánicos pueden incautar
-    autoImpoundAfterDays = 7, -- Auto-incautar después de X días sin uso
+    }
 }
 
--- Configuración de Botes
+--[[ SISTEMA DE BOTES ]]--
 Config.BoatParking = {
-    enabled = true,
-    checkInterval = 5000, -- Verificar cada 5 segundos si está en agua
-    minWaterDepth = 1.5, -- Profundidad mínima para considerar agua
+    enabled = true,                    -- Activar/desactivar sistema de botes
+    checkInterval = 5000,             -- Intervalo de verificación (5 segundos)
+    minWaterDepth = 1.5,             -- Profundidad mínima del agua requerida
+    requireDock = false,              -- false = estacionar en cualquier parte del agua
+    
+    -- Ubicaciones de muelles (solo para blips si requireDock = false)
     docks = {
         {
             name = "Puerto Principal",
             coords = vector3(-794.75, -1510.83, 1.6),
-            radius = 50.0,
-            blip = {sprite = 410, color = 3, scale = 0.8}
+            blip = {
+                sprite = 410,
+                color = 3,
+                scale = 0.8
+            }
         },
         {
             name = "Marina Chumash",
             coords = vector3(-3426.77, 955.66, 8.35),
-            radius = 50.0,
-            blip = {sprite = 410, color = 3, scale = 0.8}
+            blip = {
+                sprite = 410,
+                color = 3,
+                scale = 0.8
+            }
         },
         {
             name = "Muelle Paleto",
             coords = vector3(-275.52, 6635.84, 7.51),
-            radius = 40.0,
-            blip = {sprite = 410, color = 3, scale = 0.8}
+            blip = {
+                sprite = 410,
+                color = 3,
+                scale = 0.8
+            }
         }
     }
 }
 
--- Configuración de Optimización
+--[[ OPTIMIZACIÓN Y RENDIMIENTO ]]--
 Config.Optimization = {
-    -- Intervalos de actualización
-    vehicleCheckInterval = 5000,  -- Verificar vehículos cada 5 segundos
-    positionSaveInterval = 30000, -- Guardar posición cada 30 segundos
-    stoppedSaveDelay = 2000,     -- Esperar 2 segundos después de detenerse para guardar
+    -- Intervalos de actualización (en milisegundos)
+    intervals = {
+        vehicleCheck = 5000,         -- Verificación de vehículos (5 segundos)
+        positionSave = 30000,        -- Guardado de posición (30 segundos)
+        stoppedSave = 2000,          -- Delay después de detenerse (2 segundos)
+        streamCheck = 2000           -- Verificación de streaming (2 segundos)
+    },
     
-    -- Distancias
-    minDistanceToUpdate = 5.0,    -- Distancia mínima para actualizar posición
-    maxSpawnDistance = 300.0,     -- Distancia máxima para spawn de vehículos
+    -- Distancias (en metros)
+    distances = {
+        minUpdate = 5.0,             -- Mínima para actualizar posición
+        maxSpawn = 300.0,            -- Máxima para spawn de vehículos
+        streaming = 150.0            -- Distancia de streaming
+    },
     
-    -- Límites
-    maxVehiclesPerPlayer = 10,    -- Máximo de vehículos personales activos por jugador
-    spawnDelay = 1000,           -- Delay entre spawn de vehículos (ms)
+    -- Límites y restricciones
+    limits = {
+        maxVehiclesPerPlayer = 10,   -- Máximo de vehículos por jugador
+        spawnDelay = 1000           -- Delay entre spawns (1 segundo)
+    },
     
-    -- Cache
-    enablePermissionCache = true, -- Habilitar cache de permisos
-    cacheTimeout = 60000,        -- Tiempo de cache en ms (1 minuto)
+    -- Sistema de caché
+    cache = {
+        enabled = true,              -- Habilitar sistema de caché
+        timeout = 60000             -- Tiempo de expiración (1 minuto)
+    },
     
-    -- Streaming para 250+ jugadores
-    streamingEnabled = true,     -- Usar sistema de streaming para vehículos de facción
-    streamDistance = 150.0,      -- Distancia de streaming (metros)
-    streamCheckInterval = 2000,  -- Intervalo de verificación de streaming (ms)
+    -- Streaming para servidores grandes
+    streaming = {
+        enabled = true              -- Activar sistema de streaming
+    }
 }
 
--- Configuración de Vehículos de Facción
+--[[ SISTEMA DE VEHÍCULOS DE FACCIÓN ]]--
 Config.FactionVehicles = {
-    enabled = true, -- ASEGÚRATE DE QUE ESTÉ EN true
-    respawnOnRestart = false, -- Los vehículos vuelven a su posición original al reiniciar
-    lockToFaction = true, -- Solo miembros de la facción pueden usar los vehículos
-    requireOnDuty = false, -- Requiere estar on duty para usar vehículos de facción
-    alwaysVisible = true, -- Los vehículos siempre son visibles para todos (no afecta rendimiento con streaming)
+    -- Configuración general
+    enabled = true,                  -- Activar sistema de vehículos de facción
+    respawnOnRestart = false,        -- Restaurar posiciones al reiniciar
+    lockToFaction = true,           -- Solo miembros pueden usar los vehículos
+    requireOnDuty = false,          -- Requerir estar en servicio
+    alwaysVisible = true,           -- Vehículos visibles para todos
     
     -- Definición de vehículos por trabajo
     factions = {
@@ -234,3 +326,9 @@ Config.FactionVehicles = {
         }
     }
 }
+
+-- Configuración de Idioma
+Config.Language = 'es' -- Opciones: 'en' para inglés, 'es' para español
+
+-- Sistema de Menús
+Config.MenuSystem = 'qb' -- Opciones: 'qb' (default), 'ox', 'custom'

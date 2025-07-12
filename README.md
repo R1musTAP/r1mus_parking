@@ -1,4 +1,4 @@
-# 🚗 R1MUS Parking System
+# 🚗 R1MUS Parking System - Sistema de Estacionamiento Realista
 
 [English](#english) | [Español](#español)
 
@@ -8,7 +8,7 @@
 
 ### 📋 Description
 
-R1MUS Parking is an advanced parking system for FiveM with QBCore. It completely replaces traditional garage and key systems with a more immersive and optimized solution.
+R1MUS Parking is an advanced and realistic parking system for FiveM with QBCore. It completely replaces traditional garage systems with a more immersive and realistic solution that maintains persistent vehicle damage and position.
 
 ### ⚠️ IMPORTANT: Required Replacements
 
@@ -35,7 +35,7 @@ R1MUS Parking is an advanced parking system for FiveM with QBCore. It completely
 
 #### 🚤 Boat System
 - Automatic boat detection
-- Location validation (water/docks only)
+- Location validation (water only)
 - Prevents saving on land
 
 #### 🚧 Impound System

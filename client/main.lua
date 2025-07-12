@@ -7,6 +7,26 @@ local isInitialized = false
 local lastCoords = nil
 local factionVehicles = {} -- Track de vehículos de facción
 
+-- Función para mostrar notificaciones
+local function ShowNotification(message, type)
+    if not Config.NotificationSystem then return end
+    
+    if Config.NotificationSystem.type == 'qb' then
+        QBCore.Functions.Notify(message, type)
+    elseif Config.NotificationSystem.type == 'origen' then
+        exports['origen_notify']:Notify(message, type)
+    elseif Config.NotificationSystem.type == 'ox' then
+        exports['ox_lib']:notify({
+            description = message,
+            type = type
+        })
+    elseif Config.NotificationSystem.type == 'esx' then
+        ESX.ShowNotification(message)
+    elseif Config.NotificationSystem.type == 'custom' and Config.NotificationSystem.customNotify then
+        Config.NotificationSystem.customNotify(message, type)
+    end
+end
+
 -- Sistema de cache para optimización
 local permissionCache = {}
 local lastVehicleCheck = 0
@@ -378,16 +398,19 @@ CreateThread(function()
         if isInitialized then
             local currentTime = GetGameTimer()
             local playerPed = PlayerPedId()
+            local checkInterval = Config.Optimization.vehicleCheckInterval or 5000 -- Valor por defecto si no está definido
             
-            -- Verificar vehículos desaparecidos cada 5 segundos
-            if currentTime - lastVehicleCheck > Config.Optimization.vehicleCheckInterval then
+            -- Verificar vehículos desaparecidos
+            if not lastVehicleCheck or (currentTime - lastVehicleCheck) > checkInterval then
                 lastVehicleCheck = currentTime
                 
                 -- Verificar vehículos personales
                 for plate, vehicle in pairs(spawnedVehicles) do
-                    if not DoesEntityExist(vehicle) then
+                    if vehicle and not DoesEntityExist(vehicle) then
                         spawnedVehicles[plate] = nil
-                        permissionCache[plate .. "_personal"] = nil -- Limpiar cache
+                        if permissionCache then
+                            permissionCache[plate .. "_personal"] = nil -- Limpiar cache
+                        end
                         TriggerServerEvent('r1mus_parking:server:VehicleRemoved', plate)
                     end
                 end
@@ -462,6 +485,92 @@ RegisterNetEvent('r1mus_parking:client:RestoreFactionVehicle', function(data)
     RestoreFactionVehicle(data)
 end)
 
+-- Spawn del NPC del depósito
+local function SpawnImpoundPed()
+    if not Config.Impound.enabled or not Config.Impound.ped.enabled then return end
+
+    local hash = GetHashKey(Config.Impound.ped.model)
+    RequestModel(hash)
+    while not HasModelLoaded(hash) do
+        Wait(10)
+    end
+
+    local ped = CreatePed(4, hash, Config.Impound.ped.coords.x, Config.Impound.ped.coords.y, Config.Impound.ped.coords.z, Config.Impound.ped.heading, false, true)
+    SetEntityAsMissionEntity(ped, true, true)
+    SetBlockingOfNonTemporaryEvents(ped, true)
+    FreezeEntityPosition(ped, true)
+    SetEntityInvincible(ped, true)
+
+    if Config.Impound.ped.scenario then
+        TaskStartScenarioInPlace(ped, Config.Impound.ped.scenario, 0, true)
+    end
+
+    -- Crear zona de interacción
+    exports['qb-target']:AddTargetEntity(ped, {
+        options = {
+            {
+                type = "client",
+                event = "r1mus_parking:client:OpenImpoundMenu",
+                icon = "fas fa-car",
+                label = "Acceder al Depósito",
+            }
+        },
+        distance = 2.5,
+    })
+end
+
+-- Evento para abrir el menú del depósito
+RegisterNetEvent('r1mus_parking:client:OpenImpoundMenu', function()
+    QBCore.Functions.TriggerCallback('r1mus_parking:server:GetImpoundedVehicles', function(vehicles)
+        if not vehicles or #vehicles == 0 then
+            ShowNotification(Lang:t('error.no_impounded_vehicles'), 'error')
+            return
+        end
+
+        local menuItems = {}
+        for _, vehicle in ipairs(vehicles) do
+            table.insert(menuItems, {
+                header = vehicle.label .. ' - ' .. vehicle.plate,
+                txt = Lang:t('info.impound_fee', {amount = Config.Impound.fee}),
+                params = {
+                    event = 'r1mus_parking:client:RetrieveImpoundedVehicle',
+                    args = {
+                        plate = vehicle.plate,
+                        fee = Config.Impound.fee
+                    }
+                }
+            })
+        end
+
+        -- Soporte para diferentes sistemas de menú
+        if Config.MenuSystem == 'qb' then
+            exports['qb-menu']:openMenu(menuItems)
+        elseif Config.MenuSystem == 'ox' then
+            exports.ox_lib:registerMenu({
+                id = 'impound_menu',
+                title = Lang:t('menu.impound_lot'),
+                options = menuItems
+            })
+            exports.ox_lib:showMenu('impound_menu')
+        else
+            -- Puedes añadir más sistemas de menú aquí
+            exports[Config.MenuSystem]:openMenu(menuItems)
+        end
+    end)
+end)
+
+-- Evento para recuperar vehículo del depósito
+RegisterNetEvent('r1mus_parking:client:RetrieveImpoundedVehicle', function(data)
+    QBCore.Functions.TriggerCallback('r1mus_parking:server:PayImpoundFee', function(success)
+        if success then
+            QBCore.Functions.Notify('Vehículo recuperado - Pago realizado: $' .. data.fee, 'success')
+            TriggerServerEvent('r1mus_parking:server:RetrieveVehicle', data.plate)
+        else
+            QBCore.Functions.Notify('No tienes suficiente dinero - Necesitas: $' .. data.fee, 'error')
+        end
+    end, data.fee)
+end)
+
 RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
     print("^2OnPlayerLoaded triggered")
     CreateThread(function()
@@ -475,6 +584,8 @@ RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
         if PlayerData.job and Config.FactionVehicles and Config.FactionVehicles.enabled and Config.FactionVehicles.factions and Config.FactionVehicles.factions[PlayerData.job.name] then
             TriggerServerEvent('r1mus_parking:server:RequestFactionVehicles')
         end
+
+        SpawnImpoundPed()
     end)
 end)
 
@@ -607,6 +718,16 @@ RegisterCommand('togglelock', function()
         HandleVehicleLock()
     end
 end)
+
+-- Registro del keymapping para bloqueo de vehículos
+RegisterKeyMapping('togglevehiclelock', 'Bloquear/Desbloquear Vehículo', 'keyboard', Config.VehicleLock.defaultKey)
+
+RegisterCommand('togglevehiclelock', function()
+    if Config.VehicleLock.enabled then
+        HandleVehicleLock()
+    end
+end, false)
+
 RegisterNetEvent('r1mus_parking:client:SetVehicleRoute', function(coords)
     SetNewWaypoint(coords.x, coords.y)
     QBCore.Functions.Notify('Vehicle location marked on map', 'success')
@@ -715,3 +836,65 @@ if Config.Impound.enabled and Config.Impound.blip.enabled then
         EndTextCommandSetBlipName(blip)
     end)
 end
+
+-- Comando de impound mejorado
+RegisterCommand('impound', function()
+    local player = PlayerPedId()
+    local vehicle = GetVehiclePedIsIn(player, true)
+    
+    if not vehicle or not DoesEntityExist(vehicle) then
+        vehicle = GetClosestVehicle(GetEntityCoords(player), 5.0, 0, 71)
+    end
+    
+    if vehicle and DoesEntityExist(vehicle) then
+        local plate = GetVehicleNumberPlateText(vehicle)
+        TriggerServerEvent('r1mus_parking:server:ImpoundVehicle', plate)
+    else
+        ShowNotification(Lang:t('error.no_nearby_vehicles'), 'error')
+    end
+end, false)
+
+-- Comando de localización mejorado
+RegisterCommand('locatevehicle', function(source, args)
+    if not args[1] then
+        ShowNotification(Lang:t('error.specify_plate'), 'error')
+        return
+    end
+    
+    local plate = args[1]:upper()
+    QBCore.Functions.TriggerCallback('r1mus_parking:server:LocateVehicle', function(result)
+        if result.found then
+            if result.state == 2 then -- Impounded
+                ShowNotification(Lang:t('info.vehicle_at_impound'), 'info')
+            else
+                local distance = #(GetEntityCoords(PlayerPedId()) - vector3(result.location.x, result.location.y, result.location.z))
+                ShowNotification(Lang:t('info.vehicle_located', {distance = math.floor(distance)}), 'success')
+                
+                -- Crear blip temporal
+                local blip = AddBlipForCoord(result.location.x, result.location.y, result.location.z)
+                SetBlipSprite(blip, 225)
+                SetBlipColour(blip, 3)
+                SetBlipScale(blip, 0.8)
+                SetBlipAsShortRange(blip, false)
+                BeginTextCommandSetBlipName("STRING")
+                AddTextComponentString(result.model)
+                EndTextCommandSetBlipName(blip)
+                
+                -- Eliminar blip después de 1 minuto
+                SetTimeout(60000, function()
+                    RemoveBlip(blip)
+                end)
+            end
+        else
+            ShowNotification(result.message, 'error')
+        end
+    end, plate)
+end)
+
+-- Evento para remover vehículo
+RegisterNetEvent('r1mus_parking:client:RemoveVehicle', function(plate)
+    if spawnedVehicles[plate] and DoesEntityExist(spawnedVehicles[plate]) then
+        DeleteEntity(spawnedVehicles[plate])
+        spawnedVehicles[plate] = nil
+    end
+end)
