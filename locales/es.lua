@@ -4,6 +4,8 @@ local Translations = {
         no_parking_zone = 'No puedes estacionar en esta área',
         max_vehicles_reached = 'Has alcanzado el número máximo de vehículos estacionados',
         vehicle_not_found = 'Vehículo no encontrado',
+        no_owned_vehicles = 'No tienes vehículos',
+        model_load_failed = 'Error al cargar el modelo del vehículo',
         already_parked = 'Este vehículo ya está estacionado aquí',
         no_nearby_vehicles = 'No hay vehículos cercanos',
         no_faction_permission = 'No tienes permiso para usar este vehículo de facción',
@@ -25,6 +27,10 @@ local Translations = {
         already_impounded = 'El vehículo ya está incautado',
         impound_cancelled = 'Incautación cancelada',
         invalid_location = 'Ubicación no válida para este tipo de vehículo',
+        no_permission = 'No tienes permiso para usar este comando',
+        no_impound_permission = 'No tienes permiso para incautar vehículos',
+        invalid_plate = 'Matrícula inválida',
+        not_a_boat = 'Este vehículo no es un barco',
     },
     success = {
         vehicle_parked = 'Vehículo estacionado correctamente',
@@ -38,6 +44,7 @@ local Translations = {
         personal_vehicle_unlocked = 'Vehículo desbloqueado',
         vehicle_impounded = 'Vehículo incautado correctamente',
         vehicle_released = 'Vehículo liberado del depósito',
+        vehicle_located = 'Ubicación del vehículo marcada en el mapa',
     },
     info = {
         checking_vehicles = 'Comprobando vehículos cercanos...',
@@ -50,6 +57,9 @@ local Translations = {
         impound_fee = 'Multa de incautación: $%s',
         impound_reason = 'Razón: %s',
         impound_by = 'Incautado por: %s',
+        no_impounded_vehicles = 'No tienes vehículos en el depósito',
+        no_owned_vehicles = 'No tienes vehículos',
+        cant_park_in_water = 'No puedes estacionar el barco mientras está en el agua',
     },
     menu = {
         parking_menu = 'Menú de Estacionamiento',

@@ -185,6 +185,9 @@ Config.FactionVehicles = {
 
 --[[ BOAT PARKING SYSTEM ]]--
 Config.BoatParking = {
-    enabled = true,
-    checkInterval = 5000  -- Interval to check boat position (ms)
+    enabled = true,                    -- Habilitar sistema de barcos
+    checkInterval = 5000,             -- Intervalo para verificar posición (ms)
+    minWaterDepth = 3.0,              -- Profundidad mínima del agua para considerar "agua profunda"
+    requireDock = false,              -- No requerir estar en muelle para estacionar
+    allowParkAnywhere = true          -- Permitir estacionar en cualquier lugar fuera del agua
 }

@@ -8,22 +8,36 @@ local lastCoords = nil
 local factionVehicles = {} -- Track de vehículos de facción
 
 -- Función para mostrar notificaciones
-local function ShowNotification(message, type)
+local function ShowNotification(message, nType)
     if not Config.NotificationSystem then return end
+    if not message then return end
+    
+    -- Convertir a string si es necesario
+    if type(message) ~= "string" then
+        message = tostring(message)
+    end
+    
+    -- Tipo de notificación por defecto
+    nType = nType or 'primary'
     
     if Config.NotificationSystem.type == 'qb' then
-        QBCore.Functions.Notify(message, type)
+        QBCore.Functions.Notify(message, nType)
     elseif Config.NotificationSystem.type == 'origen' then
-        exports['origen_notify']:Notify(message, type)
+        exports['origen_notify']:Notify(message, nType)
     elseif Config.NotificationSystem.type == 'ox' then
         exports['ox_lib']:notify({
             description = message,
-            type = type
+            type = nType
         })
     elseif Config.NotificationSystem.type == 'esx' then
+        if nType == 'error' then
+            message = '~r~' .. message
+        elseif nType == 'success' then
+            message = '~g~' .. message
+        end
         ESX.ShowNotification(message)
     elseif Config.NotificationSystem.type == 'custom' and Config.NotificationSystem.customNotify then
-        Config.NotificationSystem.customNotify(message, type)
+        Config.NotificationSystem.customNotify(message, nType)
     end
 end
 
@@ -144,14 +158,30 @@ local function RestoreVehicle(data)
     -- Cargar el modelo
     print("^2Cargando modelo...")
     RequestModel(hash)
-    local timeoutCounter = 0
+    
+    -- Sistema mejorado de carga de modelos
+    local attempts = 0
+    local maxAttempts = 20 -- 20 segundos máximo
+    
     while not HasModelLoaded(hash) do
-        timeoutCounter = timeoutCounter + 1
-        Wait(50)
-        if timeoutCounter > 100 then
-            print("^1Timeout al cargar modelo")
-            return
+        attempts = attempts + 1
+        if attempts >= maxAttempts then
+            -- Intentar una última vez con carga forzada
+            SetModelAsNoLongerNeeded(hash)
+            Wait(500)
+            RequestModel(hash)
+            Wait(1000)
+            
+            if not HasModelLoaded(hash) then
+                print("^1Error al cargar modelo después de múltiples intentos")
+                TriggerEvent('r1mus_parking:client:SpawnError', {
+                    plate = data.plate,
+                    error = 'model_load_failed'
+                })
+                return
+            end
         end
+        Wait(1000) -- Esperar 1 segundo entre intentos
     end
     print("^2Modelo cargado correctamente")
 
@@ -485,22 +515,74 @@ RegisterNetEvent('r1mus_parking:client:RestoreFactionVehicle', function(data)
     RestoreFactionVehicle(data)
 end)
 
+-- Variables para el sistema de NPC
+local impoundPed = nil
+local hasSpawnedPed = false
+
 -- Spawn del NPC del depósito
 local function SpawnImpoundPed()
-    if not Config.Impound.enabled or not Config.Impound.ped.enabled then return end
+    if hasSpawnedPed or not Config.Impound.enabled or not Config.Impound.ped.enabled then return end
 
+    -- Debug info
+    print("^2Intentando crear NPC del depósito")
+    
+    -- Cargar el modelo
     local hash = GetHashKey(Config.Impound.ped.model)
-    RequestModel(hash)
-    while not HasModelLoaded(hash) do
-        Wait(10)
+    if not IsModelValid(hash) then
+        print("^1Modelo de NPC inválido: " .. Config.Impound.ped.model)
+        return
     end
 
-    local ped = CreatePed(4, hash, Config.Impound.ped.coords.x, Config.Impound.ped.coords.y, Config.Impound.ped.coords.z, Config.Impound.ped.heading, false, true)
-    SetEntityAsMissionEntity(ped, true, true)
-    SetBlockingOfNonTemporaryEvents(ped, true)
-    FreezeEntityPosition(ped, true)
-    SetEntityInvincible(ped, true)
+    RequestModel(hash)
+    local timeout = 0
+    while not HasModelLoaded(hash) and timeout < 50 do
+        Wait(100)
+        timeout = timeout + 1
+    end
 
+    if not HasModelLoaded(hash) then
+        print("^1Error al cargar modelo de NPC")
+        return
+    end
+
+    -- Crear el NPC
+    local coords = Config.Impound.ped.coords
+    impoundPed = CreatePed(4, hash, coords.x, coords.y, coords.z - 1.0, Config.Impound.ped.heading, false, true)
+    
+    if not DoesEntityExist(impoundPed) then
+        print("^1Error al crear NPC")
+        return
+    end
+
+    -- Configuración del NPC
+    SetEntityAsMissionEntity(impoundPed, true, true)
+    SetBlockingOfNonTemporaryEvents(impoundPed, true)
+    SetPedDiesWhenInjured(impoundPed, false)
+    SetEntityInvincible(impoundPed, true)
+    FreezeEntityPosition(impoundPed, true)
+    
+    -- Aplicar escenario si está configurado
+    if Config.Impound.ped.scenario then
+        TaskStartScenarioInPlace(impoundPed, Config.Impound.ped.scenario, 0, true)
+    end
+
+    -- Configurar interacción
+    exports['qb-target']:AddTargetEntity(impoundPed, {
+        options = {
+            {
+                type = "client",
+                event = "r1mus_parking:client:OpenImpoundMenu",
+                icon = "fas fa-car",
+                label = "Abrir Menú Depósito"
+            }
+        },
+        distance = 2.5
+    })
+
+    -- Marcar como spawneado
+    hasSpawnedPed = true
+    print("^2NPC del depósito creado exitosamente")
+    
     if Config.Impound.ped.scenario then
         TaskStartScenarioInPlace(ped, Config.Impound.ped.scenario, 0, true)
     end
@@ -512,51 +594,172 @@ local function SpawnImpoundPed()
                 type = "client",
                 event = "r1mus_parking:client:OpenImpoundMenu",
                 icon = "fas fa-car",
-                label = "Acceder al Depósito",
+                label = "Abrir Menú Depósito",
             }
         },
-        distance = 2.5,
+        distance = 2.5
     })
 end
+
+-- Sistema de spawn del NPC del depósito
+local impoundPed = nil
+
+local function EnsureImpoundPed()
+    -- Si el NPC ya existe y es válido, no hacer nada
+    if impoundPed and DoesEntityExist(impoundPed) then return end
+    
+    -- Si el sistema está deshabilitado, no hacer nada
+    if not Config.Impound.enabled or not Config.Impound.ped.enabled then return end
+
+    -- Cargar el modelo
+    local hash = GetHashKey(Config.Impound.ped.model)
+    RequestModel(hash)
+    
+    -- Esperar a que cargue el modelo con timeout
+    local timeout = 0
+    while not HasModelLoaded(hash) and timeout < 30 do
+        Wait(100)
+        timeout = timeout + 1
+    end
+
+    if not HasModelLoaded(hash) then
+        print("^1Error loading impound ped model")
+        return
+    end
+
+    -- Crear el NPC
+    local coords = Config.Impound.ped.coords
+    impoundPed = CreatePed(4, hash, coords.x, coords.y, coords.z - 1.0, Config.Impound.ped.heading, false, true)
+    
+    if not DoesEntityExist(impoundPed) then
+        print("^1Error creating impound ped")
+        return
+    end
+
+    -- Configurar el NPC
+    SetEntityAsMissionEntity(impoundPed, true, true)
+    SetBlockingOfNonTemporaryEvents(impoundPed, true)
+    SetPedDiesWhenInjured(impoundPed, false)
+    SetEntityInvincible(impoundPed, true)
+    FreezeEntityPosition(impoundPed, true)
+    
+    -- Aplicar escenario si está configurado
+    if Config.Impound.ped.scenario then
+        TaskStartScenarioInPlace(impoundPed, Config.Impound.ped.scenario, 0, true)
+    end
+
+    -- Configurar interacción con qb-target
+    exports['qb-target']:AddTargetEntity(impoundPed, {
+        options = {
+            {
+                type = "client",
+                event = "r1mus_parking:client:OpenImpoundMenu",
+                icon = "fas fa-car",
+                label = "Abrir Menú Depósito",
+            }
+        },
+        distance = 2.5
+    })
+
+    -- Liberar el modelo
+    SetModelAsNoLongerNeeded(hash)
+end
+
+-- Thread para mantener el NPC
+CreateThread(function()
+    while true do
+        Wait(5000)
+        EnsureImpoundPed()
+    end
+end)
+
+-- Thread para verificar el NPC del depósito
+CreateThread(function()
+    while true do
+        Wait(10000) -- Verificar cada 10 segundos
+        
+        if Config.Impound.enabled and Config.Impound.ped.enabled then
+            if not impoundPed or not DoesEntityExist(impoundPed) then
+                hasSpawnedPed = false
+                SpawnImpoundPed()
+            end
+        end
+    end
+end)
+
+-- Evento para forzar el respawn del NPC
+RegisterNetEvent('r1mus_parking:client:RespawnImpoundPed', function()
+    if impoundPed and DoesEntityExist(impoundPed) then
+        DeleteEntity(impoundPed)
+    end
+    hasSpawnedPed = false
+    Wait(1000)
+    SpawnImpoundPed()
+end)
 
 -- Evento para abrir el menú del depósito
 RegisterNetEvent('r1mus_parking:client:OpenImpoundMenu', function()
     QBCore.Functions.TriggerCallback('r1mus_parking:server:GetImpoundedVehicles', function(vehicles)
         if not vehicles or #vehicles == 0 then
-            ShowNotification(Lang:t('error.no_impounded_vehicles'), 'error')
+            ShowNotification(Lang:t('info.no_impounded_vehicles'), 'info')
             return
         end
 
-        local menuItems = {}
+        local menuItems = {
+            {
+                header = "Depósito Municipal",
+                isMenuHeader = true
+            }
+        }
+        
         for _, vehicle in ipairs(vehicles) do
+            local vehicleData = json.decode(vehicle.vehicle)
+            local vehicleName = GetLabelText(GetDisplayNameFromVehicleModel(vehicleData.model))
+            if vehicleName == 'NULL' then vehicleName = vehicleData.model end
+            
             table.insert(menuItems, {
-                header = vehicle.label .. ' - ' .. vehicle.plate,
-                txt = Lang:t('info.impound_fee', {amount = Config.Impound.fee}),
+                header = vehicleName .. ' - ' .. vehicle.plate,
+                txt = "Tarifa: $" .. Config.Impound.fee .. " | Motor: " .. math.floor((vehicleData.engineHealth or 1000)/10) .. "% | Carrocería: " .. math.floor((vehicleData.bodyHealth or 1000)/10) .. "%",
                 params = {
-                    event = 'r1mus_parking:client:RetrieveImpoundedVehicle',
-                    args = {
-                        plate = vehicle.plate,
-                        fee = Config.Impound.fee
-                    }
+                    isServer = false,
+                    event = 'r1mus_parking:client:PayImpoundFee',
+                    args = vehicle
                 }
             })
         end
 
-        -- Soporte para diferentes sistemas de menú
-        if Config.MenuSystem == 'qb' then
-            exports['qb-menu']:openMenu(menuItems)
-        elseif Config.MenuSystem == 'ox' then
-            exports.ox_lib:registerMenu({
-                id = 'impound_menu',
-                title = Lang:t('menu.impound_lot'),
-                options = menuItems
-            })
-            exports.ox_lib:showMenu('impound_menu')
-        else
-            -- Puedes añadir más sistemas de menú aquí
-            exports[Config.MenuSystem]:openMenu(menuItems)
-        end
+        table.insert(menuItems, {
+            header = "❌ Cerrar",
+            txt = "Cerrar menú",
+            params = {
+                event = "qb-menu:client:closeMenu"
+            }
+        })
+
+        exports['qb-menu']:openMenu(menuItems)
     end)
+end)
+
+-- Evento para localizar vehículo
+RegisterNetEvent('r1mus_parking:client:LocateVehicle', function(data)
+    if not data or not data.coords then
+        QBCore.Functions.Notify(Lang:t('error.vehicle_not_found'), 'error')
+        return
+    end
+
+    -- Convertir coordenadas si es necesario
+    local coords = type(data.coords) == 'string' and json.decode(data.coords) or data.coords
+    
+    -- Establecer waypoint
+    SetNewWaypoint(coords.x, coords.y)
+    
+    -- Notificar al jugador
+    QBCore.Functions.Notify(Lang:t('success.vehicle_located'), 'success')
+    
+    -- Mostrar distancia
+    local playerCoords = GetEntityCoords(PlayerPedId())
+    local distance = #(playerCoords - vector3(coords.x, coords.y, coords.z))
+    QBCore.Functions.Notify(string.format('Distancia: %.1f metros', distance), 'info')
 end)
 
 -- Sistema de control de posiciones del depósito
@@ -817,19 +1020,86 @@ AddEventHandler('onResourceStart', function(resourceName)
 end)
 
 -- Registro de comandos
+-- Comando para encontrar vehículos
 RegisterCommand('findvehicle', function(source, args)
-    if not args[1] then
-        QBCore.Functions.Notify('Debes especificar una matrícula', 'error')
+    QBCore.Functions.TriggerCallback('r1mus_parking:server:GetPlayerVehicles', function(vehicles)
+        if not vehicles or #vehicles == 0 then
+            QBCore.Functions.Notify(Lang:t('info.no_owned_vehicles'), 'info')
+            return
+        end
+
+        local Menu = {
+            {
+                header = "🚗 Tus Vehículos",
+                isMenuHeader = true
+            }
+        }
+        
+        for _, vehicle in ipairs(vehicles) do
+            local vehicleData = type(vehicle.vehicle) == 'string' and json.decode(vehicle.vehicle) or vehicle.vehicle
+            if vehicleData then
+                local model = type(vehicleData.model) == 'string' and vehicleData.model or GetDisplayNameFromVehicleModel(vehicleData.model)
+                local vehicleName = GetLabelText(GetDisplayNameFromVehicleModel(model))
+                if vehicleName == 'NULL' then vehicleName = model end
+                
+                local status = "🟢 Disponible"
+                if vehicle.impounded then
+                    status = "🔴 Incautado"
+                elseif vehicle.state == 'out' then
+                    status = "🟡 En uso"
+                end
+                
+                local engineHealth = tonumber(vehicleData.engineHealth) or 1000
+                local bodyHealth = tonumber(vehicleData.bodyHealth) or 1000
+                
+                table.insert(Menu, {
+                    header = vehicleName .. " - " .. vehicle.plate,
+                    txt = status .. " | Motor: " .. math.floor(engineHealth/10) .. "% | Carrocería: " .. math.floor(bodyHealth/10) .. "%",
+                    params = {
+                        event = 'r1mus_parking:client:LocateVehicle',
+                        args = {
+                            plate = vehicle.plate,
+                            coords = type(vehicle.coords) == 'string' and json.decode(vehicle.coords) or vehicle.coords
+                        }
+                    }
+                })
+            end
+        end
+
+        -- Añadir opción de cerrar
+        table.insert(Menu, {
+            header = "❌ Cerrar",
+            txt = "Cerrar menú",
+            params = {
+                event = "qb-menu:client:closeMenu"
+            }
+        })
+
+        -- Abrir el menú
+        exports['qb-menu']:openMenu(Menu)
+    end)
+end)
+
+-- Evento para localizar vehículo
+RegisterNetEvent('r1mus_parking:client:LocateVehicle', function(data)
+    if not data or not data.coords then
+        QBCore.Functions.Notify(Lang:t('error.vehicle_not_found'), 'error')
         return
     end
-    QBCore.Functions.TriggerCallback('r1mus_parking:server:GetLastVehicleLocation', function(coords)
-        if coords then
-            SetNewWaypoint(coords.x, coords.y)
-            QBCore.Functions.Notify('Ubicación del vehículo marcada en el mapa', 'success')
-        else
-            QBCore.Functions.Notify('No se encontró el vehículo', 'error')
-        end
-    end, args[1])
+
+    -- Convertir coordenadas si es necesario
+    local coords = type(data.coords) == 'string' and json.decode(data.coords) or data.coords
+    
+    -- Establecer waypoint
+    SetNewWaypoint(coords.x, coords.y)
+    
+    -- Notificar al jugador
+    QBCore.Functions.Notify(Lang:t('success.vehicle_located'), 'success')
+    
+    -- Mostrar distancia
+    local playerCoords = GetEntityCoords(PlayerPedId())
+    local distance = #(playerCoords - vector3(coords.x, coords.y, coords.z))
+    QBCore.Functions.Notify(string.format('Distancia: %.1f metros', distance), 'info')
 end)
 
 -- Keybinding para bloqueo de vehículo
@@ -966,7 +1236,15 @@ local function ImpoundVehicle(vehicle)
     end
 
     local plate = GetVehicleNumberPlateText(vehicle)
-    local model = GetEntityModel(vehicle)
+    if not plate then
+        ShowNotification(Lang:t('error.invalid_plate'), 'error')
+        return
+    end
+    
+    -- Limpiar la matrícula de espacios
+    plate = string.gsub(plate, "%s+", "")
+    
+    local model = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle))
     local bodyHealth = GetVehicleBodyHealth(vehicle)
     local engineHealth = GetVehicleEngineHealth(vehicle)
     local properties = GetVehicleProperties(vehicle)

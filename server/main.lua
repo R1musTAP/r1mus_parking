@@ -715,10 +715,10 @@ QBCore.Commands.Add("locatevehicle", "Locate a vehicle by plate", {{name="plate"
             TriggerClientEvent('r1mus_parking:client:SetVehicleRoute', source, coords)
             TriggerClientEvent('QBCore:Notify', source, "Vehicle location marked on map.", "success")
         else
-            TriggerClientEvent('QBCore:Notify', source, "Vehicle not found.", "error")
+            TriggerClientEvent('QBCore:Notify', source, Lang:t('error.vehicle_not_found'), "error")
         end
     else
-        TriggerClientEvent('QBCore:Notify', source, "You do not have permission to use this command.", "error")
+        TriggerClientEvent('QBCore:Notify', source, Lang:t('error.no_permission'), "error")
     end
 end, "admin")
 
@@ -735,7 +735,7 @@ QBCore.Commands.Add("impound", "Incautar un vehículo", {{name="reason", help="R
         local reason = table.concat(args, " ") or "Sin razón especificada"
         TriggerClientEvent('r1mus_parking:client:ImpoundVehicle', source, reason)
     else
-        TriggerClientEvent('QBCore:Notify', source, "No tienes permiso para incautar vehículos", "error")
+        TriggerClientEvent('QBCore:Notify', source, Lang:t('error.no_impound_permission'), "error")
     end
 end)
 
@@ -843,4 +843,37 @@ QBCore.Functions.CreateCallback('r1mus_parking:server:GetImpoundHistory', functi
     ]], {plate})
     
     cb(history or {})
+end)
+
+-- Función para guardar botes
+RegisterNetEvent('r1mus_parking:server:SaveBoat', function(plate, vehicleProps, coords, heading)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return end
+
+    -- Verificar si el jugador es dueño del bote
+    local result = MySQL.scalar.await('SELECT 1 FROM player_vehicles WHERE plate = ? AND citizenid = ?', {
+        plate,
+        Player.PlayerData.citizenid
+    })
+
+    if not result then
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.not_your_vehicle'), 'error')
+        return
+    end
+
+    -- Guardar en la base de datos de vehículos estacionados
+    MySQL.insert.await('INSERT INTO r1mus_parked_vehicles (citizenid, plate, vehicle, coords, heading, impounded) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE coords = ?, heading = ?, vehicle = ?', {
+        Player.PlayerData.citizenid,
+        plate,
+        json.encode(vehicleProps),
+        json.encode(coords),
+        heading,
+        false,
+        json.encode(coords),
+        heading,
+        json.encode(vehicleProps)
+    })
+
+    TriggerClientEvent('QBCore:Notify', src, Lang:t('success.vehicle_parked'), 'success')
 end)

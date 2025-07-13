@@ -37,7 +37,8 @@ CreateThread(function()
             
             -- Verificar qué vehículos deben estar visibles
             for _, vehicleData in ipairs(factionVehicleData) do
-                local distance = #(playerCoords - vehicleData.coords)
+                local vCoords = vector3(vehicleData.coords.x, vehicleData.coords.y, vehicleData.coords.z)
+                local distance = #(playerCoords - vCoords)
                 local vehicleKey = vehicleData.plate
                 
                 -- Verificar si el vehículo debe estar visible (SIEMPRE visible en rango)
