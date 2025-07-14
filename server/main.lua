@@ -770,60 +770,30 @@ RegisterNetEvent('r1mus_parking:server:ImpoundVehicle', function(data)
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
 
-    -- Verificar permisos
-    local canImpound = false
-    if Config.Impound.policeCanImpound and Player.PlayerData.job.name == 'police' then
-        canImpound = true
-    elseif Config.Impound.mechanicCanImpound and Player.PlayerData.job.name == 'mechanic' then
-        canImpound = true
+    -- Verificar si el jugador tiene el trabajo requerido para incautar (si está configurado)
+    if Config.Impound.requiredJob then
+        if Player.PlayerData.job.name ~= Config.Impound.requiredJob then
+            TriggerClientEvent('QBCore:Notify', src, 'No tienes autorización para incautar vehículos', 'error')
+            return
+        end
     end
 
-    if not canImpound then
-        TriggerClientEvent('QBCore:Notify', src, 'No tienes permiso para incautar vehículos', 'error')
-        return
+    -- Actualizar el estado del vehículo en la base de datos
+    MySQL.update('UPDATE player_vehicles SET state = ?, depotprice = ? WHERE plate = ?', 
+    {2, Config.Impound.fee, data.plate})
+
+    -- Si existe en r1mus_parked_vehicles, actualizarlo o insertarlo
+    local exists = MySQL.scalar.await('SELECT 1 FROM r1mus_parked_vehicles WHERE plate = ?', {data.plate})
+    if exists then
+        MySQL.update('UPDATE r1mus_parked_vehicles SET mods = ? WHERE plate = ?', 
+        {json.encode(data.properties or {}), data.plate})
+    else
+        MySQL.insert('INSERT INTO r1mus_parked_vehicles (plate, mods, model) VALUES (?, ?, ?)', 
+        {data.plate, json.encode(data.properties or {}), data.model})
     end
-
-    -- Verificar que el jugador esté cerca del vehículo
-    if not data.vehicleCoords then
-        TriggerClientEvent('QBCore:Notify', src, 'No se encontró el vehículo', 'error')
-        return
-    end
-
-    -- Proceso de incautación
-    local plate = data.plate
-    local reason = data.reason or "Vehículo incautado por las autoridades"
-    local fee = data.fee or Config.Impound.defaultFee
-
-    -- Registrar la incautación
-    MySQL.insert('INSERT INTO r1mus_impound_history (plate, officer_id, reason, fee, impound_date) VALUES (?, ?, ?, ?, ?)',
-    {
-        plate,
-        Player.PlayerData.citizenid,
-        reason,
-        fee,
-        os.time()
-    })
-
-    -- Actualizar estado del vehículo
-    MySQL.update('UPDATE player_vehicles SET state = 2 WHERE plate = ?', {plate})
-    
-    -- Actualizar en r1mus_parked_vehicles
-    MySQL.update('UPDATE r1mus_parked_vehicles SET impounded = 1, impound_date = ?, impound_reason = ?, impound_fee = ? WHERE plate = ?',
-    {
-        os.time(),
-        reason,
-        fee,
-        plate
-    })
 
     -- Notificar al cliente
-    TriggerClientEvent('QBCore:Notify', src, 'Vehículo incautado correctamente', 'success')
-    
-    -- Buscar al propietario y notificarle
-    local owner = MySQL.single.await('SELECT p.source FROM players p JOIN player_vehicles v ON p.citizenid = v.citizenid WHERE v.plate = ?', {plate})
-    if owner and owner.source then
-        TriggerClientEvent('QBCore:Notify', owner.source, 'Tu vehículo ha sido incautado por las autoridades', 'error')
-    end
+    TriggerClientEvent('QBCore:Notify', src, 'Vehículo enviado al depósito', 'success')
 end)
 
 -- Función para obtener historial de incautaciones
@@ -876,4 +846,115 @@ RegisterNetEvent('r1mus_parking:server:SaveBoat', function(plate, vehicleProps, 
     })
 
     TriggerClientEvent('QBCore:Notify', src, Lang:t('success.vehicle_parked'), 'success')
+end)
+
+-- Función para mover un vehículo al garaje
+function MoveVehicleToGarage(plate, citizenid, garageName)
+    -- Actualizar el estado del vehículo en la base de datos
+    MySQL.update('UPDATE player_vehicles SET state = ?, garage = ? WHERE plate = ? AND citizenid = ?', {1, garageName, plate, citizenid})
+    
+    -- Eliminar el vehículo del depósito
+    MySQL.update('DELETE FROM r1mus_parked_vehicles WHERE plate = ?', {plate})
+    
+    -- Eliminar cualquier registro de impound
+    MySQL.update('UPDATE player_vehicles SET depotprice = 0 WHERE plate = ?', {plate})
+end
+
+-- Evento para mover un vehículo al garaje
+RegisterNetEvent('r1mus_parking:server:MoveVehicleToGarage', function(plate, garageName)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return end
+
+    -- Verificar propiedad del vehículo
+    local isOwner = CheckVehicleOwnership(Player.PlayerData.citizenid, plate)
+    if not isOwner then return end
+
+    -- Mover el vehículo al garaje
+    MoveVehicleToGarage(plate, Player.PlayerData.citizenid, garageName)
+end)
+
+-- Evento para liberar un vehículo del depósito
+RegisterNetEvent('r1mus_parking:server:ReleaseFromImpound', function(data)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return end
+
+    -- Verificar propiedad del vehículo
+    local isOwner = CheckVehicleOwnership(Player.PlayerData.citizenid, data.plate)
+    if not isOwner then return end
+
+    -- Restaurar el vehículo en la nueva ubicación
+    MySQL.update('UPDATE r1mus_parked_vehicles SET coords = ?, heading = ? WHERE plate = ?', {
+        json.encode(data.coords),
+        data.heading,
+        data.plate
+    })
+
+    -- Actualizar el estado del vehículo
+    MySQL.update('UPDATE player_vehicles SET state = 0, depotprice = 0 WHERE plate = ?', {
+        data.plate
+    })
+
+    -- Si el vehículo no existe en r1mus_parked_vehicles, crearlo
+    local exists = MySQL.scalar.await('SELECT 1 FROM r1mus_parked_vehicles WHERE plate = ?', {data.plate})
+    if not exists and data.properties then
+        MySQL.insert('INSERT INTO r1mus_parked_vehicles (plate, citizenid, coords, heading, mods, last_parked) VALUES (?, ?, ?, ?, ?, ?)', {
+            data.plate,
+            Player.PlayerData.citizenid,
+            json.encode(data.coords),
+            data.heading,
+            json.encode(data.properties),
+            os.time()
+        })
+    end
+
+    -- Notificar a todos los clientes para actualizar el vehículo
+    TriggerClientEvent('r1mus_parking:client:RestoreVehicle', -1, {
+        plate = data.plate,
+        coords = data.coords,
+        heading = data.heading,
+        properties = data.properties
+    })
+end)
+
+-- Callback para pagar la tarifa del depósito
+QBCore.Functions.CreateCallback('r1mus_parking:server:PayImpoundFee', function(source, cb, fee, paymentType)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return cb(false) end
+
+    if paymentType == 'cash' then
+        if Player.PlayerData.money['cash'] >= fee then
+            Player.Functions.RemoveMoney('cash', fee, "impound-fee-cash")
+            cb(true)
+        else
+            cb(false)
+        end
+    elseif paymentType == 'bank' then
+        if Player.PlayerData.money['bank'] >= fee then
+            Player.Functions.RemoveMoney('bank', fee, "impound-fee-bank")
+            cb(true)
+        else
+            cb(false)
+        end
+    else
+        cb(false)
+    end
+end)
+
+-- Callback para obtener los vehículos en el depósito
+QBCore.Functions.CreateCallback('r1mus_parking:server:GetImpoundedVehicles', function(source, cb)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return cb({}) end
+
+    local vehicles = MySQL.query.await([[
+        SELECT v.*, pv.mods as vehicle 
+        FROM player_vehicles v 
+        LEFT JOIN r1mus_parked_vehicles pv ON v.plate = pv.plate 
+        WHERE v.citizenid = ? AND v.state = 2
+    ]], {Player.PlayerData.citizenid})
+
+    cb(vehicles or {})
 end)

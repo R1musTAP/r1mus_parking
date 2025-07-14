@@ -519,51 +519,173 @@ end)
 local impoundPed = nil
 local hasSpawnedPed = false
 
--- Spawn del NPC del depósito
-local function SpawnImpoundPed()
-    if hasSpawnedPed or not Config.Impound.enabled or not Config.Impound.ped.enabled then return end
-
-    -- Debug info
-    print("^2Intentando crear NPC del depósito")
-    
-    -- Cargar el modelo
-    local hash = GetHashKey(Config.Impound.ped.model)
+-- Función para cargar modelo de NPC
+local function LoadPedModel(modelName)
+    local hash = GetHashKey(modelName)
     if not IsModelValid(hash) then
-        print("^1Modelo de NPC inválido: " .. Config.Impound.ped.model)
-        return
+        print("^1Modelo inválido: " .. modelName)
+        return false
     end
 
+    print("^2Intentando cargar modelo: " .. modelName)
     RequestModel(hash)
+    
     local timeout = 0
-    while not HasModelLoaded(hash) and timeout < 50 do
+    local maxTimeout = 100 -- Aumentado el tiempo máximo de espera
+    
+    while not HasModelLoaded(hash) and timeout < maxTimeout do
         Wait(100)
         timeout = timeout + 1
+        
+        -- Cada 20 intentos, volver a solicitar el modelo
+        if timeout % 20 == 0 then
+            SetModelAsNoLongerNeeded(hash)
+            Wait(500)
+            RequestModel(hash)
+        end
     end
 
-    if not HasModelLoaded(hash) then
-        print("^1Error al cargar modelo de NPC")
+    if HasModelLoaded(hash) then
+        print("^2Modelo cargado exitosamente: " .. modelName)
+        return hash
+    end
+
+    print("^1Error al cargar modelo: " .. modelName)
+    SetModelAsNoLongerNeeded(hash)
+    return false
+end
+
+-- Spawn del NPC del depósito
+local function SpawnImpoundPed()
+    if not Config.Impound.enabled or not Config.Impound.ped.enabled then return end
+    
+    -- Si el NPC ya existe y está en buen estado, no hacer nada
+    if impoundPed and DoesEntityExist(impoundPed) then
+        local pedCoords = GetEntityCoords(impoundPed)
+        local targetCoords = Config.Impound.ped.coords
+        if #(pedCoords - targetCoords) < 3.0 and not IsPedDeadOrDying(impoundPed, true) then
+            return
+        end
+    end
+
+    -- Solo mostrar mensaje de debug si realmente vamos a spawnear
+    if Config.Debug then
+        print("^2Iniciando proceso de spawn del NPC del depósito")
+    end
+    
+    -- Intentar cada modelo en la lista hasta que uno funcione
+    local hash = nil
+    if Config.Impound.ped.models and #Config.Impound.ped.models > 0 then
+        for _, modelName in ipairs(Config.Impound.ped.models) do
+            print("^3Intentando cargar modelo: " .. modelName)
+            hash = LoadPedModel(modelName)
+            if hash then
+                print("^2Modelo exitoso: " .. modelName)
+                break
+            end
+            Wait(500) -- Pequeña espera entre intentos
+        end
+    end
+    
+    -- Si ningún modelo funcionó, usar un modelo por defecto
+    if not hash then
+        local defaultModel = 'a_m_m_business_01'
+        print("^3Ningún modelo configurado funcionó, intentando modelo por defecto: " .. defaultModel)
+        hash = LoadPedModel(defaultModel)
+    end
+
+    if not hash then
+        print("^1Error: Ningún modelo de NPC pudo ser cargado")
         return
     end
 
-    -- Crear el NPC
+    -- Crear el NPC con sistema de respawn
     local coords = Config.Impound.ped.coords
-    impoundPed = CreatePed(4, hash, coords.x, coords.y, coords.z - 1.0, Config.Impound.ped.heading, false, true)
+    local attempts = 0
+    local maxAttempts = 3
+
+    -- Limpiar cualquier NPC anterior
+    if impoundPed and DoesEntityExist(impoundPed) then
+        DeleteEntity(impoundPed)
+        impoundPed = nil
+        Wait(1000)
+    end
+
+    while attempts < maxAttempts do
+        print("^3Intento " .. (attempts + 1) .. " de crear NPC")
+        
+        -- Limpiar el área antes de crear el NPC
+        ClearAreaOfPeds(coords.x, coords.y, coords.z, 2.0, 1)
+        Wait(500)
+        
+        -- Verificar que el modelo sigue cargado
+        if not HasModelLoaded(hash) then
+            RequestModel(hash)
+            Wait(1000)
+        end
+        
+        -- Crear el NPC con más opciones de configuración
+        impoundPed = CreatePed(4, hash, coords.x, coords.y, coords.z - 1.0, Config.Impound.ped.heading, false, false)
+        
+        if DoesEntityExist(impoundPed) then
+            -- Configuración inmediata para evitar problemas
+            SetEntityAsMissionEntity(impoundPed, true, true)
+            SetBlockingOfNonTemporaryEvents(impoundPed, true)
+            SetPedDiesWhenInjured(impoundPed, false)
+            FreezeEntityPosition(impoundPed, true)
+            SetEntityInvincible(impoundPed, true)
+            SetPedCanRagdoll(impoundPed, false)
+            SetPedCanBeTargetted(impoundPed, false)
+            
+            -- Verificar que el NPC sigue existiendo después de la configuración
+            if DoesEntityExist(impoundPed) then
+                print("^2NPC creado exitosamente")
+                break
+            else
+                print("^1NPC se eliminó durante la configuración")
+            end
+        end
+        
+        print("^1Intento " .. (attempts + 1) .. " de crear NPC fallido, reintentando...")
+        attempts = attempts + 1
+        Wait(2000) -- Mayor tiempo de espera entre intentos
+        
+        -- Limpiar recursos si el intento falló
+        if impoundPed and DoesEntityExist(impoundPed) then
+            DeleteEntity(impoundPed)
+            impoundPed = nil
+        end
+    end
     
     if not DoesEntityExist(impoundPed) then
-        print("^1Error al crear NPC")
+        print("^1Error: No se pudo crear el NPC después de múltiples intentos")
         return
     end
 
-    -- Configuración del NPC
-    SetEntityAsMissionEntity(impoundPed, true, true)
-    SetBlockingOfNonTemporaryEvents(impoundPed, true)
-    SetPedDiesWhenInjured(impoundPed, false)
-    SetEntityInvincible(impoundPed, true)
-    FreezeEntityPosition(impoundPed, true)
-    
-    -- Aplicar escenario si está configurado
-    if Config.Impound.ped.scenario then
-        TaskStartScenarioInPlace(impoundPed, Config.Impound.ped.scenario, 0, true)
+    -- Configurar el escenario del NPC después de un breve delay
+    Wait(1000) -- Dar tiempo a que el NPC se estabilice
+    if DoesEntityExist(impoundPed) then
+        -- Doble verificación de configuraciones críticas
+        SetEntityAsMissionEntity(impoundPed, true, true)
+        SetBlockingOfNonTemporaryEvents(impoundPed, true)
+        SetPedDiesWhenInjured(impoundPed, false)
+        SetEntityInvincible(impoundPed, true)
+        FreezeEntityPosition(impoundPed, true)
+        SetPedCanRagdoll(impoundPed, false)
+        SetPedCanBeTargetted(impoundPed, false)
+        
+        -- Configuración adicional para estabilidad
+        SetEntityProofs(impoundPed, true, true, true, true, true, true, true, true)
+        SetPedConfigFlag(impoundPed, 185, true) -- CPED_CONFIG_FLAG_DisableWheelieStats
+        SetPedConfigFlag(impoundPed, 108, true) -- CPED_CONFIG_FLAG_DontActivateRagdollFromVehicleImpact
+        SetPedConfigFlag(impoundPed, 208, true) -- CPED_CONFIG_FLAG_DisallowVehicleEvasiveAnims
+        
+        -- Aplicar escenario si está configurado
+        if Config.Impound.ped.scenario then
+            ClearPedTasksImmediately(impoundPed)
+            Wait(500)
+            TaskStartScenarioInPlace(impoundPed, Config.Impound.ped.scenario, 0, true)
+        end
     end
 
     -- Configurar interacción
@@ -605,27 +727,27 @@ end
 local impoundPed = nil
 
 local function EnsureImpoundPed()
-    -- Si el NPC ya existe y es válido, no hacer nada
-    if impoundPed and DoesEntityExist(impoundPed) then return end
+    -- Si el NPC ya existe y es válido, verificar su estado
+    if impoundPed and DoesEntityExist(impoundPed) then
+        -- Verificar si el NPC está en su posición correcta
+        local pedCoords = GetEntityCoords(impoundPed)
+        local configCoords = Config.Impound.ped.coords
+        local distance = #(pedCoords - configCoords)
+        
+        if distance > 2.0 then
+            print("^3NPC fuera de posición, recolocando...")
+            SetEntityCoords(impoundPed, configCoords.x, configCoords.y, configCoords.z - 1.0, false, false)
+            SetEntityHeading(impoundPed, Config.Impound.ped.heading)
+        end
+        return
+    end
     
     -- Si el sistema está deshabilitado, no hacer nada
     if not Config.Impound.enabled or not Config.Impound.ped.enabled then return end
 
-    -- Cargar el modelo
-    local hash = GetHashKey(Config.Impound.ped.model)
-    RequestModel(hash)
-    
-    -- Esperar a que cargue el modelo con timeout
-    local timeout = 0
-    while not HasModelLoaded(hash) and timeout < 30 do
-        Wait(100)
-        timeout = timeout + 1
-    end
-
-    if not HasModelLoaded(hash) then
-        print("^1Error loading impound ped model")
-        return
-    end
+    -- Reintentar el spawn del NPC
+    print("^3NPC no existe, iniciando proceso de spawn")
+    SpawnImpoundPed()
 
     -- Crear el NPC
     local coords = Config.Impound.ped.coords
@@ -665,11 +787,75 @@ local function EnsureImpoundPed()
     SetModelAsNoLongerNeeded(hash)
 end
 
+-- Variables para el control del NPC
+local lastRespawnTime = 0
+local respawnCooldown = 30000 -- 30 segundos de cooldown entre respawns
+local lastVerifiedPosition = nil
+
 -- Thread para mantener el NPC
 CreateThread(function()
     while true do
-        Wait(5000)
-        EnsureImpoundPed()
+        Wait(10000) -- Aumentado a 10 segundos
+        
+        if Config.Impound.enabled and Config.Impound.ped.enabled then
+            -- Solo verificar si ha pasado el cooldown
+            local currentTime = GetGameTimer()
+            if currentTime - lastRespawnTime < respawnCooldown then
+                goto continue
+            end
+
+            -- Verificar si el NPC existe y está en la posición correcta
+            if impoundPed and DoesEntityExist(impoundPed) then
+                local pedCoords = GetEntityCoords(impoundPed)
+                local targetCoords = Config.Impound.ped.coords
+                local distance = #(pedCoords - targetCoords)
+                
+                -- Verificar si el NPC necesita ser respawneado
+                local needsRespawn = false
+                
+                -- Verificar condiciones críticas que requieren respawn inmediato
+                if IsPedDeadOrDying(impoundPed, true) or not IsEntityVisible(impoundPed) then
+                    needsRespawn = true
+                end
+                
+                -- Si el NPC está muy lejos o en estado inválido
+                if distance > 3.0 then
+                    -- Intentar primero teletransportarlo
+                    SetEntityCoords(impoundPed, targetCoords.x, targetCoords.y, targetCoords.z - 1.0, false, false, false, false)
+                    SetEntityHeading(impoundPed, Config.Impound.ped.heading)
+                    FreezeEntityPosition(impoundPed, true)
+                    Wait(500)
+                    
+                    -- Verificar si el teletransporte funcionó
+                    pedCoords = GetEntityCoords(impoundPed)
+                    distance = #(pedCoords - targetCoords)
+                    if distance > 3.0 then
+                        needsRespawn = true
+                    end
+                end
+                
+                if needsRespawn then
+                    DeleteEntity(impoundPed)
+                    impoundPed = nil
+                    Wait(1000)
+                    SpawnImpoundPed()
+                    lastRespawnTime = currentTime
+                else
+                    -- Solo reforzar configuraciones si son necesarias
+                    if not IsEntityPositionFrozen(impoundPed) then
+                        FreezeEntityPosition(impoundPed, true)
+                    end
+                    if not GetEntityInvincible(impoundPed) then
+                        SetEntityInvincible(impoundPed, true)
+                    end
+                end
+            elseif currentTime - lastRespawnTime >= respawnCooldown then
+                SpawnImpoundPed()
+                lastRespawnTime = currentTime
+            end
+            
+            ::continue::
+        end
     end
 end)
 
@@ -899,15 +1085,20 @@ RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
     print("^2OnPlayerLoaded triggered")
     CreateThread(function()
         Wait(3000)
-        print("^2Solicitando vehículos después de 3 segundos")
+        print("^2Inicializando sistema de vehículos")
         PlayerData = QBCore.Functions.GetPlayerData()
         isInitialized = true
+        
+        -- Limpiar cualquier estado previo
+        factionVehicles = {}
+        if streamedFactionVehicles then streamedFactionVehicles = {} end
+        if factionVehicleData then factionVehicleData = {} end
+        
+        -- Solicitar solo vehículos personales
         TriggerServerEvent('r1mus_parking:server:RequestAllVehicles')
         
-        -- También solicitar vehículos de facción si tiene trabajo
-        if PlayerData.job and Config.FactionVehicles and Config.FactionVehicles.enabled and Config.FactionVehicles.factions and Config.FactionVehicles.factions[PlayerData.job.name] then
-            TriggerServerEvent('r1mus_parking:server:RequestFactionVehicles')
-        end
+        -- Los vehículos de facción se cargarán a través del sistema de streaming
+        -- cuando el jugador se acerque a las zonas correspondientes
 
         SpawnImpoundPed()
     end)
@@ -1130,21 +1321,38 @@ end)
 
 -- Evento para cuando cambia el trabajo del jugador
 RegisterNetEvent('QBCore:Client:OnJobUpdate', function(JobInfo)
-    -- Limpiar vehículos de facción anteriores si cambió de trabajo
-    if PlayerData.job and PlayerData.job.name ~= JobInfo.name then
+    local oldJob = PlayerData.job and PlayerData.job.name
+    PlayerData.job = JobInfo
+    
+    -- Solo limpiar si el trabajo ha cambiado
+    if oldJob ~= JobInfo.name then
+        print("^2Cambiando de trabajo: " .. (oldJob or "ninguno") .. " a " .. JobInfo.name)
+        
+        -- Limpiar vehículos de facción existentes
         for plate, vehicle in pairs(factionVehicles) do
             if DoesEntityExist(vehicle) then
                 DeleteEntity(vehicle)
+                print("^3Eliminando vehículo de facción anterior: " .. plate)
             end
             TriggerServerEvent('r1mus_parking:server:VehicleRemoved', plate)
         end
         factionVehicles = {}
-    end
-    
-    -- Solicitar nuevos vehículos de facción si el nuevo trabajo los tiene
-    if Config.FactionVehicles and Config.FactionVehicles.enabled and Config.FactionVehicles.factions and Config.FactionVehicles.factions[JobInfo.name] then
-        Wait(1000) -- Pequeño delay para asegurar que el trabajo se actualizó en el servidor
-        TriggerServerEvent('r1mus_parking:server:RequestFactionVehicles')
+
+        -- Limpiar vehículos en streaming
+        if streamedFactionVehicles then
+            for plate, vehicle in pairs(streamedFactionVehicles) do
+                if DoesEntityExist(vehicle) then
+                    DeleteEntity(vehicle)
+                    print("^3Eliminando vehículo en streaming: " .. plate)
+                end
+            end
+            streamedFactionVehicles = {}
+        end
+        
+        -- Limpiar datos de streaming
+        if factionVehicleData then
+            factionVehicleData = {}
+        end
     end
 end)
 
@@ -1223,7 +1431,7 @@ local function IsNearVehicle(vehicle)
     return distance <= 3.0 -- Debe estar a 3 metros o menos
 end
 
--- Función para incautar vehículo
+-- Función para incautar vehículo con sistema de grúa automática
 local function ImpoundVehicle(vehicle)
     if not vehicle then
         ShowNotification(Lang:t('error.no_vehicle'), 'error')
@@ -1244,6 +1452,7 @@ local function ImpoundVehicle(vehicle)
     -- Limpiar la matrícula de espacios
     plate = string.gsub(plate, "%s+", "")
     
+    local vehicleCoords = GetEntityCoords(vehicle)
     local model = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle))
     local bodyHealth = GetVehicleBodyHealth(vehicle)
     local engineHealth = GetVehicleEngineHealth(vehicle)
@@ -1275,7 +1484,7 @@ local function ImpoundVehicle(vehicle)
 
     -- Animación de inspección del vehículo
     TaskStartScenarioInPlace(PlayerPedId(), "WORLD_HUMAN_CLIPBOARD", 0, true)
-    QBCore.Functions.Progressbar("impounding_vehicle", Lang:t('progress.impounding_vehicle'), 10000, false, true, {
+    QBCore.Functions.Progressbar("checking_vehicle", "Inspeccionando vehículo...", 5000, false, true, {
         disableMovement = true,
         disableCarMovement = true,
         disableMouse = false,
@@ -1283,18 +1492,51 @@ local function ImpoundVehicle(vehicle)
     }, {}, {}, {}, function() -- Done
         ClearPedTasks(PlayerPedId())
         
-        -- Enviar datos al servidor
+        -- Spawneamos la grúa
+        local towTruckHash = GetHashKey('flatbed')
+        RequestModel(towTruckHash)
+        while not HasModelLoaded(towTruckHash) do
+            Wait(0)
+        end
+        
+        -- Encontrar una posición adecuada para la grúa
+        local offset = GetOffsetFromEntityInWorldCoords(vehicle, 0.0, -8.0, 0.0)
+        local towTruck = CreateVehicle(towTruckHash, offset.x, offset.y, offset.z, GetEntityHeading(vehicle), true, false)
+        SetEntityAsMissionEntity(towTruck, true, true)
+        
+        -- Configurar la grúa
+        SetVehicleEngineOn(towTruck, true, true, false)
+        SetVehicleDoorsLocked(towTruck, 2)
+        SetVehicleDoorsLockedForAllPlayers(towTruck, true)
+        
+        -- Animar la carga del vehículo
+        SetVehicleDoorOpen(towTruck, 5, false, false)
+        Wait(1000)
+        
+        -- Desactivar colisiones durante la carga
+        SetEntityCollision(vehicle, false, false)
+        
+        -- Adjuntar el vehículo a la grúa
+        AttachEntityToEntity(vehicle, towTruck, GetEntityBoneIndexByName(towTruck, 'bodyshell'), 0.0, -3.3, 1.0, 0.0, 0.0, 0.0, false, false, false, false, 0, true)
+        
+        -- Notificar al servidor
         TriggerServerEvent('r1mus_parking:server:ImpoundVehicle', {
             plate = plate,
-            vehicleCoords = coords,
-            heading = heading,
+            vehicleCoords = vehicleCoords,
+            heading = GetEntityHeading(vehicle),
             model = model,
             bodyHealth = bodyHealth,
             engineHealth = engineHealth
         })
-
-        -- Eliminar el vehículo localmente
-        DeleteVehicle(vehicle)
+        
+        -- Animar la grúa alejándose
+        TaskVehicleDriveToCoord(GetPedInVehicleSeat(towTruck, -1), towTruck, Config.Impound.location.entrance.x, Config.Impound.location.entrance.y, Config.Impound.location.entrance.z, 20.0, 1.0, GetEntityModel(towTruck), 524860, 1.0, true)
+        
+        -- Esperar unos segundos y luego limpiar
+        Wait(5000)
+        DeleteEntity(towTruck)
+        DeleteEntity(vehicle)
+        
         ShowNotification(Lang:t('success.vehicle_impounded'), 'success')
     end, function() -- Cancel
         ClearPedTasks(PlayerPedId())
@@ -1315,35 +1557,67 @@ RegisterNetEvent('r1mus_parking:client:ImpoundVehicle', function()
     end
 end)
 
--- Blip del depósito
-if Config.Impound.enabled and Config.Impound.blip.enabled then
-    CreateThread(function()
-        local blip = AddBlipForCoord(Config.Impound.location.x, Config.Impound.location.y, Config.Impound.location.z)
-        SetBlipSprite(blip, Config.Impound.blip.sprite)
-        SetBlipDisplay(blip, 4)
-        SetBlipScale(blip, Config.Impound.blip.scale)
-        SetBlipColour(blip, Config.Impound.blip.color)
-        SetBlipAsShortRange(blip, true)
-        BeginTextCommandSetBlipName("STRING")
-        AddTextComponentString(Config.Impound.blip.label)
-        EndTextCommandSetBlipName(blip)
-    end)
-end
-
 -- Comando de impound mejorado
 RegisterCommand('impound', function()
-    local player = PlayerPedId()
-    local vehicle = GetVehiclePedIsIn(player, true)
-    
-    if not vehicle or not DoesEntityExist(vehicle) then
-        vehicle = GetClosestVehicle(GetEntityCoords(player), 5.0, 0, 71)
+    local playerPed = PlayerPedId()
+    local vehicle = nil
+    local coords = GetEntityCoords(playerPed)
+
+    -- Si el jugador está en un vehículo, usar ese
+    if IsPedInAnyVehicle(playerPed, false) then
+        vehicle = GetVehiclePedIsIn(playerPed, false)
+    else
+        -- Buscar el vehículo más cercano en un radio de 5 metros
+        local vehicles = GetGamePool('CVehicle')
+        local closestDist = 5.0
+        local closestVeh = nil
+        for _, v in ipairs(vehicles) do
+            local vCoords = GetEntityCoords(v)
+            local dist = #(coords - vCoords)
+            if dist < closestDist then
+                closestDist = dist
+                closestVeh = v
+            end
+        end
+        vehicle = closestVeh
     end
-    
+
     if vehicle and DoesEntityExist(vehicle) then
         local plate = GetVehicleNumberPlateText(vehicle)
-        TriggerServerEvent('r1mus_parking:server:ImpoundVehicle', plate)
+        if not plate or plate == '' then
+            ShowNotification('No se pudo obtener la matrícula del vehículo', 'error')
+            return
+        end
+
+        -- Animación y barra de progreso
+        TaskStartScenarioInPlace(playerPed, "WORLD_HUMAN_CLIPBOARD", 0, true)
+        QBCore.Functions.Progressbar("impound_vehicle", "Incautando vehículo...", 4000, false, true, {
+            disableMovement = true,
+            disableCarMovement = true,
+            disableMouse = false,
+            disableCombat = true,
+        }, {}, {}, {}, function()
+            ClearPedTasks(playerPed)
+            -- Guardar propiedades
+            local vehicleProps = GetVehicleProperties(vehicle)
+            local model = GetEntityModel(vehicle)
+            local displayName = GetDisplayNameFromVehicleModel(model)
+            local vehicleName = GetLabelText(displayName)
+            -- Notificar al servidor
+            TriggerServerEvent('r1mus_parking:server:ImpoundVehicle', {
+                plate = plate,
+                model = vehicleName ~= 'NULL' and vehicleName or displayName,
+                properties = vehicleProps
+            })
+            -- Eliminar el vehículo
+            DeleteEntity(vehicle)
+            ShowNotification('Vehículo enviado al depósito', 'success')
+        end, function()
+            ClearPedTasks(playerPed)
+            ShowNotification('Incautación cancelada', 'error')
+        end)
     else
-        ShowNotification(Lang:t('error.no_nearby_vehicles'), 'error')
+        ShowNotification('No se encontró el vehículo. Acércate más.', 'error')
     end
 end, false)
 
@@ -1390,4 +1664,110 @@ RegisterNetEvent('r1mus_parking:client:RemoveVehicle', function(plate)
         DeleteEntity(spawnedVehicles[plate])
         spawnedVehicles[plate] = nil
     end
+end)
+
+-- Evento para pagar la tarifa del depósito
+RegisterNetEvent('r1mus_parking:client:PayImpoundFee', function(data)
+    if not data or not data.plate then return end
+
+    local Player = QBCore.Functions.GetPlayerData()
+    local canPayCash = Player.money['cash'] >= Config.Impound.fee
+    local canPayBank = Player.money['bank'] >= Config.Impound.fee
+
+    exports['qb-menu']:openMenu({
+        {
+            header = "🚗 Recuperar Vehículo",
+            txt = "Matrícula: " .. data.plate,
+            isMenuHeader = true
+        },
+        {
+            header = canPayCash and "💵 Pagar en efectivo" or "❌ Efectivo insuficiente",
+            txt = "Costo: $" .. Config.Impound.fee .. (canPayCash and "" or " - No tienes suficiente efectivo"),
+            disabled = not canPayCash,
+            params = canPayCash and {
+                event = "r1mus_parking:client:ConfirmRetrieveVehicle",
+                args = {
+                    plate = data.plate,
+                    fee = Config.Impound.fee,
+                    vehicle = data.vehicle,
+                    paymentType = 'cash'
+                }
+            } or nil
+        },
+        {
+            header = canPayBank and "💳 Pagar con tarjeta" or "❌ Saldo insuficiente",
+            txt = "Costo: $" .. Config.Impound.fee .. (canPayBank and "" or " - No tienes suficiente saldo"),
+            disabled = not canPayBank,
+            params = canPayBank and {
+                event = "r1mus_parking:client:ConfirmRetrieveVehicle",
+                args = {
+                    plate = data.plate,
+                    fee = Config.Impound.fee,
+                    vehicle = data.vehicle,
+                    paymentType = 'bank'
+                }
+            } or nil
+        },
+        {
+            header = "❌ Cancelar",
+            txt = "Volver",
+            params = {
+                event = "qb-menu:client:closeMenu"
+            }
+        }
+    })
+end)
+
+-- Evento para confirmar la recuperación del vehículo
+RegisterNetEvent('r1mus_parking:client:ConfirmRetrieveVehicle', function(data)
+    if not data or not data.plate then return end
+
+    QBCore.Functions.TriggerCallback('r1mus_parking:server:PayImpoundFee', function(success)
+        if success then
+            -- Buscar una posición libre cerca del depósito
+            local spawnPoint = nil
+            for _, pos in ipairs(Config.Impound.spawnPositions) do
+                local clear = true
+                local vehicles = GetGamePool('CVehicle')
+                for _, v in ipairs(vehicles) do
+                    local vehCoords = GetEntityCoords(v)
+                    local distance = #(vehCoords - pos.coords)
+                    if distance < 3.0 then
+                        clear = false
+                        break
+                    end
+                end
+                if clear then
+                    spawnPoint = pos
+                    break
+                end
+            end
+
+            if spawnPoint then
+                -- Enviar evento al servidor para liberar el vehículo
+                TriggerServerEvent('r1mus_parking:server:ReleaseFromImpound', {
+                    plate = data.plate,
+                    coords = spawnPoint.coords,
+                    heading = spawnPoint.heading,
+                    properties = data.vehicle and json.decode(data.vehicle) or nil
+                })
+
+                -- Abrir la puerta del depósito
+                ControlImpoundGate(true)
+                
+                -- Notificar al jugador
+                ShowNotification('Has pagado $' .. data.fee .. ' con ' .. (data.paymentType == 'cash' and 'efectivo' or 'tarjeta') .. '. Tu vehículo está listo para recoger.', 'success')
+                PlaySoundFrontend(-1, "NAV", "HUD_AMMO_SHOP_SOUNDSET", 1)
+
+                -- Cerrar la puerta después de 30 segundos
+                SetTimeout(30000, function()
+                    ControlImpoundGate(false)
+                end)
+            else
+                ShowNotification('No hay espacio disponible para liberar tu vehículo. Inténtalo de nuevo en unos momentos.', 'error')
+            end
+        else
+            ShowNotification('Error al procesar el pago.', 'error')
+        end
+    end, data.fee, data.paymentType)
 end)

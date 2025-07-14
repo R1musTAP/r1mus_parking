@@ -83,7 +83,12 @@ Config.Impound = {
     -- NPC Configuration
     ped = {
         enabled = true,
-        model = 'cs_jimmyboston',
+        models = {
+            'cs_jimmyboston',     -- Primer modelo a intentar
+            's_m_m_security_01',  -- Modelo de respaldo 1 (Guardia de seguridad)
+            's_m_y_cop_01',       -- Modelo de respaldo 2 (Policía)
+            'mp_m_waremech_01'    -- Modelo de respaldo 3 (Mecánico)
+        },
         coords = vector3(409.25, -1623.08, 29.29),
         heading = 229.5,
         scenario = 'WORLD_HUMAN_CLIPBOARD'
@@ -113,7 +118,7 @@ Config.FactionVehicles = {
                 {
                     model = "police",
                     label = "Patrulla Estándar",
-                    coords = vector3(458.45, -1017.25, 28.27),
+                    coords = vector4(441.5035, -1024.2858, 28.6974),
                     heading = 91.24,
                     livery = 0,
                     extras = {1, 2, 3, 4}
@@ -121,7 +126,7 @@ Config.FactionVehicles = {
                 {
                     model = "police2",
                     label = "Patrulla SUV",
-                    coords = vector3(458.45, -1021.25, 28.27),
+                    coords = vector4(446.9621, -1023.6602, 28.5908),
                     heading = 91.24,
                     livery = 0,
                     extras = {1, 2, 3}
@@ -129,7 +134,7 @@ Config.FactionVehicles = {
                 {
                     model = "police3",
                     label = "Patrulla Interceptor",
-                    coords = vector3(458.45, -1025.25, 28.27),
+                    coords = vector4(451.7863, -1023.6266, 28.5156),
                     heading = 91.24,
                     livery = 0,
                     extras = {1, 2}
@@ -143,7 +148,7 @@ Config.FactionVehicles = {
                 {
                     model = "ambulance",
                     label = "Ambulancia",
-                    coords = vector3(297.95, -579.32, 43.26),
+                    coords = vector4(291.8515, -612.5726, 43.3986),
                     heading = 338.88,
                     livery = 0,
                     extras = {1, 2, 3, 4}
@@ -151,7 +156,7 @@ Config.FactionVehicles = {
                 {
                     model = "emsnspeedo",
                     label = "Van Médica",
-                    coords = vector3(294.95, -581.32, 43.26),
+                    coords = vector4(294.1606, -607.0378, 43.3314),
                     heading = 338.88,
                     livery = 0,
                     extras = {1, 2}
@@ -165,7 +170,7 @@ Config.FactionVehicles = {
                 {
                     model = "towtruck",
                     label = "Grúa",
-                    coords = vector3(-373.23, -116.75, 38.7),
+                    coords = vector4(-200.7378, -1298.1160, 31.2617),
                     heading = 207.61,
                     livery = 0,
                     extras = {}
@@ -173,7 +178,7 @@ Config.FactionVehicles = {
                 {
                     model = "flatbed",
                     label = "Plataforma",
-                    coords = vector3(-377.23, -116.75, 38.7),
+                    coords = vector4(-189.4579, -1287.8645, 31.3531),
                     heading = 207.61,
                     livery = 0,
                     extras = {}
